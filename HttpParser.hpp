@@ -26,19 +26,19 @@ struct Callbacks
 {
 	static int onMessageBegin(http_parser* p)
 			{ return ((ParserT*) p->data)->onMessageBegin(); }
-	static int onUrl(http_parser* p, const char *data, size_t length)
+	static int onUrl(http_parser* p, const char* data, size_t length)
 			{ return ((ParserT*) p->data)->onUrl(data, length); }
-	static int onStatus(http_parser* p, const char *data, size_t length)
+	static int onStatus(http_parser* p, const char* data, size_t length)
 			{ return ((ParserT*) p->data)->onStatus(data, length); }
-	static int onHeaderField(http_parser* p, const char *data, size_t length)
+	static int onHeaderField(http_parser* p, const char* data, size_t length)
 			{ return ((ParserT*) p->data)->onHeaderField(data, length); }
-	static int onHeaderValue(http_parser* p, const char *data, size_t length)
+	static int onHeaderValue(http_parser* p, const char* data, size_t length)
 			{ return ((ParserT*) p->data)->onHeaderValue(data, length); }
 	static int onHeadersComplete(http_parser* p)
 			{ return ((ParserT*) p->data)->onHeadersComplete(); }
 	static int onMessageComplete(http_parser* p)
 			{ return ((ParserT*) p->data)->onMessageComplete(); }
-	static int onBody(http_parser* p, const char *data, size_t length)
+	static int onBody(http_parser* p, const char* data, size_t length)
 			{ return ((ParserT*) p->data)->onBody(data, length); }
 	static int onChunkHeader(http_parser* p)
 			{ return ((ParserT*) p->data)->onChunkHeader(); }
@@ -80,13 +80,13 @@ private:
 
 class HeaderAssembler
 {
-	Headers &headers;
+	Headers& headers;
 	std::string currentHeaderField;
 	std::string currentHeaderValue;
 	bool currentHeaderFieldComplete = false;
 
 public:
-	HeaderAssembler(Headers &headers): headers(headers) {}
+	HeaderAssembler(Headers& headers): headers(headers) {}
 	HeaderAssembler(const HeaderAssembler&) = delete;
 	HeaderAssembler(HeaderAssembler&&) = delete;
 	HeaderAssembler& operator=(const HeaderAssembler&) = delete;
@@ -99,7 +99,7 @@ public:
 		currentHeaderFieldComplete = false;
 	}
 
-	void onHeaderField(const char *data, std::size_t length)
+	void onHeaderField(const char* data, std::size_t length)
 	{
 		if (currentHeaderFieldComplete) {
 			onSingleHeaderComplete();
@@ -107,7 +107,7 @@ public:
 		currentHeaderField.append(data, length);
 	}
 
-	void onHeaderValue(const char *data, std::size_t length)
+	void onHeaderValue(const char* data, std::size_t length)
 	{
 		currentHeaderValue.append(data, length);
 		currentHeaderFieldComplete = true;
@@ -177,10 +177,10 @@ class Parser
 {
 protected:
 	http_parser p;
-	http_parser_settings &parserSettings;
+	http_parser_settings& parserSettings;
 	std::size_t totalConsumedLength;
 
-	Parser(http_parser_type parserType, http_parser_settings &parserSettings)
+	Parser(http_parser_type parserType, http_parser_settings& parserSettings)
 		: parserSettings(parserSettings), totalConsumedLength(0)
 	{
 		http_parser_init(&p, parserType);
@@ -193,7 +193,7 @@ public:
 	Parser(const Parser&) = delete;
 	Parser& operator=(const Parser&) = delete;
 
-	void feed(const char *input, std::size_t inputLength)
+	void feed(const char* input, std::size_t inputLength)
 	{
 		std::size_t consumedLength = http_parser_execute(
 				&p, &parserSettings, input, inputLength);
@@ -263,28 +263,28 @@ private:
 		return 0;
 	}
 
-	int onUrl(const char *data, std::size_t length)
+	int onUrl(const char* data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		currentRequest.url.append(data, length);
 		return 0;
 	}
 
-	int onStatus(const char *data, std::size_t length)
+	int onStatus(const char* data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		assert(false); // not reached
 		return 0;
 	}
 
-	int onHeaderField(const char *data, std::size_t length)
+	int onHeaderField(const char* data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		headerAssembler.onHeaderField(data, length);
 		return 0;
 	}
 
-	int onHeaderValue(const char *data, std::size_t length)
+	int onHeaderValue(const char* data, std::size_t length)
 	{
 		// std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		headerAssembler.onHeaderValue(data, length);
@@ -298,7 +298,7 @@ private:
 		return 0;
 	}
 
-	int onBody(const char *data, std::size_t length)
+	int onBody(const char* data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		currentRequest.body.append(data, length);
