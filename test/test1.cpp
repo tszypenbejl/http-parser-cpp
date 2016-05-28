@@ -10,7 +10,7 @@
 	struct IsContiguousMemoryForwardIterator \
 			<typename std::string::const_iterator>: std::true_type {};
 
-#include "HttpParser.hpp"
+#include "../HttpParser.hpp"
 
 
 bool operator==(const http::Request& lhs, const http::Request& rhs)

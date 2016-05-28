@@ -6,8 +6,7 @@ This is a work in progress - not ready for production yet. See test.cpp for usag
 License: BSD.
 
 TODO:
-* refactor class names,
-* better tests, use CMake to build test program(s)
+* better tests
 * chunking support,
 * http response parser,
 * handle protocol upgrades,
