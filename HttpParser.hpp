@@ -21,12 +21,7 @@ using RequestConsumer = std::function<void(Request&&)>;
 
 namespace detail {
 
-/*
- * TODO: Perhaps it would be possible to define a template:
- * template<typename ParserT>
- * struct Callbacks { ... };
- * and get rid of the virtual methods from the Parser class.
- */
+template<typename ParserT>
 struct Callbacks
 {
 	static int onMessageBegin(http_parser* p);
@@ -41,6 +36,7 @@ struct Callbacks
 	static int onChunkComplete(http_parser* p);
 };
 
+template<typename ParserT>
 struct ParserSettings
 {
 	http_parser_settings s;
@@ -59,16 +55,16 @@ private:
 	ParserSettings()
 	{
 		http_parser_settings_init(&s);
-		s.on_message_begin = &Callbacks::onMessageBegin;
-		s.on_url = &Callbacks::onUrl;
-		s.on_status = &Callbacks::onStatus;
-		s.on_header_field = &Callbacks::onHeaderField;
-		s.on_header_value = &Callbacks::onHeaderValue;
-		s.on_headers_complete = &Callbacks::onHeadersComplete;
-		s.on_body = &Callbacks::onBody;
-		s.on_message_complete = &Callbacks::onMessageComplete;
-		s.on_chunk_header = &Callbacks::onChunkHeader;
-		s.on_chunk_complete = &Callbacks::onChunkComplete;
+		s.on_message_begin = &Callbacks<ParserT>::onMessageBegin;
+		s.on_url = &Callbacks<ParserT>::onUrl;
+		s.on_status = &Callbacks<ParserT>::onStatus;
+		s.on_header_field = &Callbacks<ParserT>::onHeaderField;
+		s.on_header_value = &Callbacks<ParserT>::onHeaderValue;
+		s.on_headers_complete = &Callbacks<ParserT>::onHeadersComplete;
+		s.on_body = &Callbacks<ParserT>::onBody;
+		s.on_message_complete = &Callbacks<ParserT>::onMessageComplete;
+		s.on_chunk_header = &Callbacks<ParserT>::onChunkHeader;
+		s.on_chunk_complete = &Callbacks<ParserT>::onChunkComplete;
 	}
 };
 
@@ -131,7 +127,6 @@ private:
 
 } /* namespace detail */
 
-
 class ParseError: public std::runtime_error
 {
 public:
@@ -172,14 +167,17 @@ class Parser
 {
 protected:
 	http_parser p;
+	http_parser_settings &parserSettings;
 	std::size_t totalConsumedLength;
 
-	Parser(http_parser_type parserType)
-		: totalConsumedLength(0)
+	Parser(http_parser_type parserType, http_parser_settings &parserSettings)
+		: parserSettings(parserSettings), totalConsumedLength(0)
 	{
 		http_parser_init(&p, parserType);
 		p.data = this;
 	}
+
+	virtual ~Parser() {}
 
 public:
 	Parser(const Parser&) = delete;
@@ -188,7 +186,7 @@ public:
 	void feed(const char *input, std::size_t inputLength)
 	{
 		std::size_t consumedLength = http_parser_execute(
-				&p, &detail::ParserSettings::get().s, input, inputLength);
+				&p, &parserSettings, input, inputLength);
 		totalConsumedLength += consumedLength;
 		if (consumedLength != inputLength) {
 			std::ostringstream errMsg;
@@ -224,38 +222,30 @@ private:
 		const std::size_t len = end - begin;
 		feed(buf, len);
 	}
-
-private:
-	friend struct detail::Callbacks;
-	virtual int onMessageBegin() = 0;
-	virtual int onUrl(const char *data, std::size_t length) = 0;
-	virtual int onStatus(const char *data, std::size_t length) = 0;
-	virtual int onHeaderField(const char *data, std::size_t length) = 0;
-	virtual int onHeaderValue(const char *data, std::size_t length) = 0;
-	virtual int onHeadersComplete() = 0;
-	virtual int onBody(const char *data, std::size_t length) = 0;
-	virtual int onMessageComplete() = 0;
-	virtual int onChunkHeader() = 0;
-	virtual int onChunkComplete() = 0;
 };
 
 class RequestParser: public Parser
 {
-	RequestConsumer requestConsumer;
 	Request currentRequest;
 	detail::HeaderAssembler headerAssembler;
+	RequestConsumer requestConsumer;
 
 public:
 	std::deque<Request> parsedRequests;
+
 public:
 	RequestParser()
-		: Parser(HTTP_REQUEST), headerAssembler(currentRequest.headers) {}
-	RequestParser(RequestConsumer requestConsumer)
-		: Parser(HTTP_REQUEST), requestConsumer(requestConsumer),
+		: Parser(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
 			headerAssembler(currentRequest.headers) {}
 
+	RequestParser(RequestConsumer requestConsumer)
+		: Parser(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer) {}
+
 private:
-	int onMessageBegin() override
+	friend struct detail::Callbacks<RequestParser>;
+
+	int onMessageBegin()
 	{
 		//std::cout << __FUNCTION__ << std::endl;
 		currentRequest = Request();
@@ -263,49 +253,49 @@ private:
 		return 0;
 	}
 
-	int onUrl(const char *data, std::size_t length) override
+	int onUrl(const char *data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		currentRequest.url.append(data, length);
 		return 0;
 	}
 
-	int onStatus(const char *data, std::size_t length) override
+	int onStatus(const char *data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		assert(false); // not reached
 		return 0;
 	}
 
-	int onHeaderField(const char *data, std::size_t length) override
+	int onHeaderField(const char *data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		headerAssembler.onHeaderField(data, length);
 		return 0;
 	}
 
-	int onHeaderValue(const char *data, std::size_t length) override
+	int onHeaderValue(const char *data, std::size_t length)
 	{
 		// std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		headerAssembler.onHeaderValue(data, length);
 		return 0;
 	}
 
-	int onHeadersComplete() override
+	int onHeadersComplete()
 	{
 		// std::cout << __FUNCTION__ << std::endl;
 		headerAssembler.onHeadersComplete();
 		return 0;
 	}
 
-	int onBody(const char *data, std::size_t length) override
+	int onBody(const char *data, std::size_t length)
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		currentRequest.body.append(data, length);
 		return 0;
 	}
 
-	int onMessageComplete() override
+	int onMessageComplete()
 	{
 		//std::cout << __FUNCTION__ << std::endl;
 		currentRequest.type = static_cast<Request::Type>(p.method);
@@ -317,14 +307,14 @@ private:
 		return 0;
 	}
 
-	int onChunkHeader() override
+	int onChunkHeader()
 	{
 		// std::cout << __FUNCTION__ << " (" << p.content_length << ")" << std::endl;
 		// TODO
 		return 0;
 	}
 
-	int onChunkComplete() override
+	int onChunkComplete()
 	{
 		// std::cout << __FUNCTION__ << std::endl;
 		// TODO
@@ -334,26 +324,45 @@ private:
 
 namespace detail {
 
-int Callbacks::onMessageBegin(http_parser* p)
-		{ return ((Parser*) p->data)->onMessageBegin(); }
-int Callbacks::onUrl(http_parser* p, const char *data, size_t length)
-		{ return ((Parser*) p->data)->onUrl(data, length); }
-int Callbacks::onStatus(http_parser* p, const char *data, size_t length)
-		{ return ((Parser*) p->data)->onStatus(data, length); }
-int Callbacks::onHeaderField(http_parser* p, const char *data, size_t length)
-		{ return ((Parser*) p->data)->onHeaderField(data, length); }
-int Callbacks::onHeaderValue(http_parser* p, const char *data, size_t length)
-		{ return ((Parser*) p->data)->onHeaderValue(data, length); }
-int Callbacks::onHeadersComplete(http_parser* p)
-		{ return ((Parser*) p->data)->onHeadersComplete(); }
-int Callbacks::onBody(http_parser* p, const char *data, size_t length)
-		{ return ((Parser*) p->data)->onBody(data, length); }
-int Callbacks::onMessageComplete(http_parser* p)
-		{ return ((Parser*) p->data)->onMessageComplete(); }
-int Callbacks::onChunkHeader(http_parser* p)
-		{ return ((Parser*) p->data)->onChunkHeader(); }
-int Callbacks::onChunkComplete(http_parser* p)
-		{ return ((Parser*) p->data)->onChunkComplete(); }
+template<typename ParserT>
+int Callbacks<ParserT>::onMessageBegin(http_parser* p)
+		{ return ((ParserT*) p->data)->onMessageBegin(); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onUrl(http_parser* p, const char *data, size_t length)
+		{ return ((ParserT*) p->data)->onUrl(data, length); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onStatus(http_parser* p, const char *data, size_t length)
+		{ return ((ParserT*) p->data)->onStatus(data, length); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onHeaderField(http_parser* p, const char *data, size_t length)
+		{ return ((ParserT*) p->data)->onHeaderField(data, length); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onHeaderValue(http_parser* p, const char *data, size_t length)
+		{ return ((ParserT*) p->data)->onHeaderValue(data, length); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onHeadersComplete(http_parser* p)
+		{ return ((ParserT*) p->data)->onHeadersComplete(); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onBody(http_parser* p, const char *data, size_t length)
+		{ return ((ParserT*) p->data)->onBody(data, length); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onMessageComplete(http_parser* p)
+		{ return ((ParserT*) p->data)->onMessageComplete(); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onChunkHeader(http_parser* p)
+		{ return ((ParserT*) p->data)->onChunkHeader(); }
+
+template<typename ParserT>
+int Callbacks<ParserT>::onChunkComplete(http_parser* p)
+		{ return ((ParserT*) p->data)->onChunkComplete(); }
 
 } /* namespace detail */
 
