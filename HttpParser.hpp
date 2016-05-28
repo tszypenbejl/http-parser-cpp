@@ -14,10 +14,10 @@
 
 namespace http {
 
-class HttpRequest;
+class Request;
 
 using Headers = std::map<std::string, std::string>;
-using HttpRequestConsumer = std::function<void(HttpRequest&&)>;
+using RequestConsumer = std::function<void(Request&&)>;
 
 namespace detail {
 
@@ -25,7 +25,7 @@ namespace detail {
  * TODO: Perhaps it would be possible to define a template:
  * template<typename ParserT>
  * struct Callbacks { ... };
- * and get rid of the virtual methods from the HttpParser class.
+ * and get rid of the virtual methods from the Parser class.
  */
 struct Callbacks
 {
@@ -152,7 +152,7 @@ struct IsContiguousMemoryForwardIterator
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 #endif
 
-struct HttpRequest
+struct Request
 {
 	using Type = enum http_method;
 public:
@@ -161,20 +161,20 @@ public:
 	std::string body;
 	Headers headers;
 public:
-	HttpRequest() = default;
-	HttpRequest(const HttpRequest&) = default;
-	HttpRequest(HttpRequest&&) = default;
-	HttpRequest& operator=(const HttpRequest&) = default;
-	HttpRequest& operator=(HttpRequest&&) = default;
+	Request() = default;
+	Request(const Request&) = default;
+	Request(Request&&) = default;
+	Request& operator=(const Request&) = default;
+	Request& operator=(Request&&) = default;
 };
 
-class HttpParser
+class Parser
 {
 protected:
 	http_parser p;
 	std::size_t totalConsumedLength;
 
-	HttpParser(http_parser_type parserType)
+	Parser(http_parser_type parserType)
 		: totalConsumedLength(0)
 	{
 		http_parser_init(&p, parserType);
@@ -182,8 +182,8 @@ protected:
 	}
 
 public:
-	HttpParser(const HttpParser&) = delete;
-	HttpParser& operator=(const HttpParser&) = delete;
+	Parser(const Parser&) = delete;
+	Parser& operator=(const Parser&) = delete;
 
 	void feed(const char *input, std::size_t inputLength)
 	{
@@ -239,26 +239,26 @@ private:
 	virtual int onChunkComplete() = 0;
 };
 
-class HttpRequestParser: public HttpParser
+class RequestParser: public Parser
 {
-	HttpRequestConsumer reqConsumer;
-	HttpRequest currentReq;
+	RequestConsumer requestConsumer;
+	Request currentRequest;
 	detail::HeaderAssembler headerAssembler;
 
 public:
-	std::deque<HttpRequest> parsedRequests;
+	std::deque<Request> parsedRequests;
 public:
-	HttpRequestParser()
-		: HttpParser(HTTP_REQUEST), headerAssembler(currentReq.headers) {}
-	HttpRequestParser(HttpRequestConsumer reqConsumer)
-		: HttpParser(HTTP_REQUEST), reqConsumer(reqConsumer),
-			headerAssembler(currentReq.headers) {}
+	RequestParser()
+		: Parser(HTTP_REQUEST), headerAssembler(currentRequest.headers) {}
+	RequestParser(RequestConsumer requestConsumer)
+		: Parser(HTTP_REQUEST), requestConsumer(requestConsumer),
+			headerAssembler(currentRequest.headers) {}
 
 private:
 	int onMessageBegin() override
 	{
 		//std::cout << __FUNCTION__ << std::endl;
-		currentReq = HttpRequest();
+		currentRequest = Request();
 		headerAssembler.reset();
 		return 0;
 	}
@@ -266,7 +266,7 @@ private:
 	int onUrl(const char *data, std::size_t length) override
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
-		currentReq.url.append(data, length);
+		currentRequest.url.append(data, length);
 		return 0;
 	}
 
@@ -301,18 +301,18 @@ private:
 	int onBody(const char *data, std::size_t length) override
 	{
 		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
-		currentReq.body.append(data, length);
+		currentRequest.body.append(data, length);
 		return 0;
 	}
 
 	int onMessageComplete() override
 	{
 		//std::cout << __FUNCTION__ << std::endl;
-		currentReq.type = static_cast<HttpRequest::Type>(p.method);
-		if (reqConsumer) {
-			reqConsumer(std::move(currentReq));
+		currentRequest.type = static_cast<Request::Type>(p.method);
+		if (requestConsumer) {
+			requestConsumer(std::move(currentRequest));
 		} else {
-			parsedRequests.push_back(std::move(currentReq));
+			parsedRequests.push_back(std::move(currentRequest));
 		}
 		return 0;
 	}
@@ -335,39 +335,39 @@ private:
 namespace detail {
 
 int Callbacks::onMessageBegin(http_parser* p)
-		{ return ((HttpParser*) p->data)->onMessageBegin(); }
+		{ return ((Parser*) p->data)->onMessageBegin(); }
 int Callbacks::onUrl(http_parser* p, const char *data, size_t length)
-		{ return ((HttpParser*) p->data)->onUrl(data, length); }
+		{ return ((Parser*) p->data)->onUrl(data, length); }
 int Callbacks::onStatus(http_parser* p, const char *data, size_t length)
-		{ return ((HttpParser*) p->data)->onStatus(data, length); }
+		{ return ((Parser*) p->data)->onStatus(data, length); }
 int Callbacks::onHeaderField(http_parser* p, const char *data, size_t length)
-		{ return ((HttpParser*) p->data)->onHeaderField(data, length); }
+		{ return ((Parser*) p->data)->onHeaderField(data, length); }
 int Callbacks::onHeaderValue(http_parser* p, const char *data, size_t length)
-		{ return ((HttpParser*) p->data)->onHeaderValue(data, length); }
+		{ return ((Parser*) p->data)->onHeaderValue(data, length); }
 int Callbacks::onHeadersComplete(http_parser* p)
-		{ return ((HttpParser*) p->data)->onHeadersComplete(); }
+		{ return ((Parser*) p->data)->onHeadersComplete(); }
 int Callbacks::onBody(http_parser* p, const char *data, size_t length)
-		{ return ((HttpParser*) p->data)->onBody(data, length); }
+		{ return ((Parser*) p->data)->onBody(data, length); }
 int Callbacks::onMessageComplete(http_parser* p)
-		{ return ((HttpParser*) p->data)->onMessageComplete(); }
+		{ return ((Parser*) p->data)->onMessageComplete(); }
 int Callbacks::onChunkHeader(http_parser* p)
-		{ return ((HttpParser*) p->data)->onChunkHeader(); }
+		{ return ((Parser*) p->data)->onChunkHeader(); }
 int Callbacks::onChunkComplete(http_parser* p)
-		{ return ((HttpParser*) p->data)->onChunkComplete(); }
+		{ return ((Parser*) p->data)->onChunkComplete(); }
 
 } /* namespace detail */
 
 } /* namespace http */
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, http::HttpRequest::Type reqType)
+StreamT& operator<<(StreamT& stream, http::Request::Type reqType)
 {
 	stream << http_method_str(reqType);
 	return stream;
 }
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::HttpRequest& req)
+StreamT& operator<<(StreamT& stream, const http::Request& req)
 {
 	stream << "HTTP " << req.type << " request\n"
 			<< "\turl: '" << req.url << "'\n"

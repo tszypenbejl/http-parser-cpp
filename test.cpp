@@ -13,7 +13,7 @@
 #include "HttpParser.hpp"
 
 
-bool operator==(const http::HttpRequest& lhs, const http::HttpRequest& rhs)
+bool operator==(const http::Request& lhs, const http::Request& rhs)
 {
 	return lhs.type == rhs.type && lhs.url == rhs.url && lhs.headers == rhs.headers && lhs.body == rhs.body;
 }
@@ -21,7 +21,7 @@ bool operator==(const http::HttpRequest& lhs, const http::HttpRequest& rhs)
 int main()
 {
 	using namespace http;
-	HttpRequestParser myParser;
+	RequestParser myParser;
 
 	char input[] = "GET /formhandler?par1=koko+jumbo&par2=kinematograf HTTP/1.1\r\nHost: example.com\r\n\r\n";
 	myParser.feed(input, sizeof(input) - 1);
