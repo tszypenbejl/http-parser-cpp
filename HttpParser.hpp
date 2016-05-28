@@ -24,16 +24,26 @@ namespace detail {
 template<typename ParserT>
 struct Callbacks
 {
-	static int onMessageBegin(http_parser* p);
-	static int onUrl(http_parser* p, const char *data, size_t length);
-	static int onStatus(http_parser* p, const char *data, size_t length);
-	static int onHeaderField(http_parser* p, const char *data, size_t length);
-	static int onHeaderValue(http_parser* p, const char *data, size_t length);
-	static int onHeadersComplete(http_parser* p);
-	static int onBody(http_parser* p, const char *data, size_t length);
-	static int onMessageComplete(http_parser* p);
-	static int onChunkHeader(http_parser* p);
-	static int onChunkComplete(http_parser* p);
+	static int onMessageBegin(http_parser* p)
+			{ return ((ParserT*) p->data)->onMessageBegin(); }
+	static int onUrl(http_parser* p, const char *data, size_t length)
+			{ return ((ParserT*) p->data)->onUrl(data, length); }
+	static int onStatus(http_parser* p, const char *data, size_t length)
+			{ return ((ParserT*) p->data)->onStatus(data, length); }
+	static int onHeaderField(http_parser* p, const char *data, size_t length)
+			{ return ((ParserT*) p->data)->onHeaderField(data, length); }
+	static int onHeaderValue(http_parser* p, const char *data, size_t length)
+			{ return ((ParserT*) p->data)->onHeaderValue(data, length); }
+	static int onHeadersComplete(http_parser* p)
+			{ return ((ParserT*) p->data)->onHeadersComplete(); }
+	static int onMessageComplete(http_parser* p)
+			{ return ((ParserT*) p->data)->onMessageComplete(); }
+	static int onBody(http_parser* p, const char *data, size_t length)
+			{ return ((ParserT*) p->data)->onBody(data, length); }
+	static int onChunkHeader(http_parser* p)
+			{ return ((ParserT*) p->data)->onChunkHeader(); }
+	static int onChunkComplete(http_parser* p)
+			{ return ((ParserT*) p->data)->onChunkComplete(); }
 };
 
 template<typename ParserT>
@@ -321,50 +331,6 @@ private:
 		return 0;
 	}
 };
-
-namespace detail {
-
-template<typename ParserT>
-int Callbacks<ParserT>::onMessageBegin(http_parser* p)
-		{ return ((ParserT*) p->data)->onMessageBegin(); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onUrl(http_parser* p, const char *data, size_t length)
-		{ return ((ParserT*) p->data)->onUrl(data, length); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onStatus(http_parser* p, const char *data, size_t length)
-		{ return ((ParserT*) p->data)->onStatus(data, length); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onHeaderField(http_parser* p, const char *data, size_t length)
-		{ return ((ParserT*) p->data)->onHeaderField(data, length); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onHeaderValue(http_parser* p, const char *data, size_t length)
-		{ return ((ParserT*) p->data)->onHeaderValue(data, length); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onHeadersComplete(http_parser* p)
-		{ return ((ParserT*) p->data)->onHeadersComplete(); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onBody(http_parser* p, const char *data, size_t length)
-		{ return ((ParserT*) p->data)->onBody(data, length); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onMessageComplete(http_parser* p)
-		{ return ((ParserT*) p->data)->onMessageComplete(); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onChunkHeader(http_parser* p)
-		{ return ((ParserT*) p->data)->onChunkHeader(); }
-
-template<typename ParserT>
-int Callbacks<ParserT>::onChunkComplete(http_parser* p)
-		{ return ((ParserT*) p->data)->onChunkComplete(); }
-
-} /* namespace detail */
 
 } /* namespace http */
 
