@@ -8,9 +8,7 @@
 #include "../HttpParser.hpp"
 
 using boost::asio::ip::tcp;
-using http::RequestParser;
-using http::Request;
-using http::ParseError;
+using namespace http;
 
 class Session: public std::enable_shared_from_this<Session>
 {
@@ -32,48 +30,62 @@ private:
 	void doRead()
 	{
 		auto self(shared_from_this());
-		socket.async_read_some(boost::asio::buffer(inputBuf, inputBufLen),
+		auto readCallback =
 				[this, self](boost::system::error_code ec, std::size_t length)
-				{
-					if (ec) {
-						return;
-					}
-					try {
-						reqParser.feed(inputBuf, length);
-						doRead();
-					} catch (const ParseError&) {
-						static const std::string response =
-								"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n"
-								"Content-Length: 17\r\n\r\n400 Bad Request\r\n";
-						doWrite(response);
-					}
-				});
+		{
+			if (ec) {
+				return;
+			}
+			try {
+				reqParser.feed(inputBuf, length);
+				doRead();
+			} catch (const RequestParseError&) {
+				doWrite(
+						"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n"
+						"Content-Type: text/plain\r\n"
+						"Content-Length: 17\r\n\r\n400 Bad Request\r\n");
+			}
+		};
+		socket.async_read_some(
+				boost::asio::buffer(inputBuf, inputBufLen), readCallback);
 	}
 
-	void doWrite(const std::string& response)
+	void doWrite(const std::string response)
 	{
-		// FIXME: response param reference must remain valid indefinitely,
-		//        perhaps writeCallback could be forced to store a copy of it.
 		auto self(shared_from_this());
-		auto writeCallback = [self](boost::system::error_code, std::size_t) {};
-		boost::asio::async_write(socket, boost::asio::buffer(response), writeCallback);
+		auto responseBuffer = std::make_shared<std::string>(std::move(response));
+		auto writeCallback =
+				[self, responseBuffer](boost::system::error_code, std::size_t) {};
+		// writeCallback will keep responseBuffer valid until the whole response is sent
+		boost::asio::async_write(socket, boost::asio::buffer(*responseBuffer),
+				writeCallback);
 	}
 
 	void onRequestReceived(Request& req)
 	{
-		static const std::string responseOk =
-				"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
-				"Content-Length: 15\r\n\r\nHello, World!\r\n";
-		static const std::string response404 =
-				"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
-				"Content-Length: 15\r\n\r\n404 Not Found\r\n";
-
-		const std::string& response =
-				"/" == req.url ? responseOk : response404;
-
-		// TODO: must check if request method is GET
-
-		doWrite(response);
+		if (req.type != HTTP_GET) {
+			doWrite(
+					"HTTP/1.1 405 Method Not Allowed\r\nAllow: GET\r\n"
+					"Content-Type: text/plain\r\n"
+					"Content-Length: 24\r\n\r\n405 Method Not Allowed\r\n");
+			return;
+		}
+		try {
+			Url url = parseUrl(req.url);
+			if ("/" == url.path) {
+				doWrite(
+						"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+						"Content-Length: 15\r\n\r\nHello, World!\r\n");
+			} else {
+				doWrite(
+						"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
+						"Content-Length: 15\r\n\r\n404 Not Found\r\n");
+			}
+		} catch (const UrlParseError&) {
+			doWrite(
+					"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n"
+					"Content-Length: 31\r\n\r\n400 Bad Request (invalid url)\r\n");
+		}
 	}
 };
 
@@ -90,13 +102,13 @@ public:
 private:
 	void doAccept()
 	{
-		acceptor.async_accept(socket, [this](boost::system::error_code ec)
-				{
-					if (!ec) {
-						std::make_shared<Session>(std::move(socket))->start();
-					}
-					doAccept();
-				});
+		auto acceptCallback = [this](boost::system::error_code ec) {
+			if (!ec) {
+				std::make_shared<Session>(std::move(socket))->start();
+			}
+			doAccept();
+		};
+		acceptor.async_accept(socket, acceptCallback);
 	}
 };
 
