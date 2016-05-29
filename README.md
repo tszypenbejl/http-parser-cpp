@@ -10,4 +10,3 @@ TODO:
 * chunking support,
 * http response parser,
 * handle protocol upgrades,
-* provide wrapper for http_parser_parse_url(),

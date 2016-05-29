@@ -4,6 +4,8 @@
 // #include <iostream> // TODO: remove
 #include <stdexcept>
 #include <string>
+#include <vector>
+#include <array>
 #include <map>
 #include <sstream>
 #include <deque>
@@ -143,6 +145,18 @@ public:
 	ParseError(const std::string& msg): std::runtime_error(msg) {}
 };
 
+class RequestParseError: public ParseError
+{
+public:
+	RequestParseError(const std::string& msg): ParseError(msg) {}
+};
+
+class UrlParseError: public ParseError
+{
+public:
+	UrlParseError(const std::string& msg): ParseError(msg) {}
+};
+
 template <typename IterT>
 struct IsContiguousMemoryForwardIterator: std::is_pointer<IterT> {};
 
@@ -156,6 +170,54 @@ struct IsContiguousMemoryForwardIterator
 #ifdef HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 #endif
+
+struct Url
+{
+	std::string schema;
+	std::string host;
+	std::string path;
+	std::string query;
+	std::string fragment;
+	std::string userinfo;
+	unsigned port = 0;
+};
+
+Url parseUrl(const std::string& input, bool isConnect = false)
+{
+	http_parser_url u;
+	http_parser_url_init(&u);
+	int err = http_parser_parse_url(
+			input.c_str(), input.size(), int(isConnect), &u);
+	if (err) {
+		throw UrlParseError("Failed to parse this url: '" + input + "'");
+	}
+
+	Url parsedUrl;
+
+	using FieldDef = std::pair<http_parser_url_fields, std::string Url::*>;
+	static const FieldDef stringFields[] = {
+		{ UF_SCHEMA, &Url::schema },
+		{ UF_HOST, &Url::host },
+		{ UF_PATH, &Url::path },
+		{ UF_QUERY, &Url::query },
+		{ UF_FRAGMENT, &Url::fragment },
+		{ UF_USERINFO, &Url::userinfo }
+	};
+	for (const FieldDef& field: stringFields) {
+		if (u.field_set & (1 << field.first)) {
+			parsedUrl.*field.second = input.substr(
+					u.field_data[field.first].off, u.field_data[field.first].len);
+		}
+	}
+
+	if (u.field_set & (1 << UF_PORT)) {
+		parsedUrl.port = std::stoul(input.substr(
+				u.field_data[UF_PORT].off, u.field_data[UF_PORT].len
+		));
+	}
+
+	return parsedUrl;
+}
 
 struct Request
 {
@@ -198,12 +260,12 @@ public:
 		std::size_t consumedLength = http_parser_execute(
 				&p, &parserSettings, input, inputLength);
 		totalConsumedLength += consumedLength;
-		if (consumedLength != inputLength) {
+		if (consumedLength != inputLength || HTTP_PARSER_ERRNO(&p) != HPE_OK) {
 			std::ostringstream errMsg;
 			errMsg << "HTTP Parse error on character "
 					<< totalConsumedLength << " (character " << p.nread
-					<< " in current request)";
-			throw ParseError(errMsg.str().c_str());
+					<< " in current request): " << http_errno_name(HTTP_PARSER_ERRNO(&p));
+			throw RequestParseError(errMsg.str().c_str());
 		}
 	}
 
@@ -351,5 +413,19 @@ StreamT& operator<<(StreamT& stream, const http::Request& req)
 		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
 	}
 	stream << "\tbody is " << req.body.size() << " bytes long.";
+	return stream;
+}
+
+template<typename StreamT>
+StreamT& operator<<(StreamT& stream, const http::Url& url)
+{
+	stream << "URL\n"
+			<< "schema: '" << url.schema << "'\n"
+			<< "host: '" << url.host << "'\n"
+			<< "port: " << url.port << "\n"
+			<< "path: '" << url.path << "'\n"
+			<< "query: '" << url.query << "'\n"
+			<< "fragment: '" << url.fragment << "'\n"
+			<< "userinfo: '" << url.userinfo << "'\n";
 	return stream;
 }
