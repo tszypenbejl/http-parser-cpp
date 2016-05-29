@@ -1,11 +1,9 @@
 #pragma once
 
 #include <http_parser.h>
-// #include <iostream> // TODO: remove
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <array>
 #include <map>
 #include <sstream>
 #include <deque>
@@ -166,6 +164,12 @@ struct IsContiguousMemoryForwardIterator
 template <>
 struct IsContiguousMemoryForwardIterator
 		<typename std::vector<char>::const_iterator>: std::true_type {};
+template <>
+struct IsContiguousMemoryForwardIterator
+		<typename std::string::iterator>: std::true_type {};
+template <>
+struct IsContiguousMemoryForwardIterator
+		<typename std::string::const_iterator>: std::true_type {};
 
 #ifdef HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
@@ -319,7 +323,6 @@ private:
 
 	int onMessageBegin()
 	{
-		//std::cout << __FUNCTION__ << std::endl;
 		currentRequest = Request();
 		headerAssembler.reset();
 		return 0;
@@ -327,49 +330,42 @@ private:
 
 	int onUrl(const char* data, std::size_t length)
 	{
-		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		currentRequest.url.append(data, length);
 		return 0;
 	}
 
 	int onStatus(const char* data, std::size_t length)
 	{
-		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		assert(false); // not reached
 		return 0;
 	}
 
 	int onHeaderField(const char* data, std::size_t length)
 	{
-		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		headerAssembler.onHeaderField(data, length);
 		return 0;
 	}
 
 	int onHeaderValue(const char* data, std::size_t length)
 	{
-		// std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		headerAssembler.onHeaderValue(data, length);
 		return 0;
 	}
 
 	int onHeadersComplete()
 	{
-		// std::cout << __FUNCTION__ << std::endl;
 		headerAssembler.onHeadersComplete();
 		return 0;
 	}
 
 	int onBody(const char* data, std::size_t length)
 	{
-		//std::cout << __FUNCTION__ << " (" << std::string(data, length) << ")" << std::endl;
 		currentRequest.body.append(data, length);
 		return 0;
 	}
 
 	int onMessageComplete()
 	{
-		//std::cout << __FUNCTION__ << std::endl;
 		currentRequest.type = static_cast<Request::Type>(p.method);
 		if (requestConsumer) {
 			requestConsumer(std::move(currentRequest));

@@ -34,6 +34,7 @@ private:
 				[this, self](boost::system::error_code ec, std::size_t length)
 		{
 			if (ec) {
+				reqParser.feedEof();
 				return;
 			}
 			try {
