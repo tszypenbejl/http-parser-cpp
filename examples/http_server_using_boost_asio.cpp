@@ -16,6 +16,7 @@ class Session: public std::enable_shared_from_this<Session>
 
 private:
 	tcp::socket socket;
+	bool keepAlive = true;
 	char inputBuf[inputBufLen];
 	RequestParser reqParser;
 
@@ -39,7 +40,9 @@ private:
 			}
 			try {
 				reqParser.feed(inputBuf, length);
-				doRead();
+				if (keepAlive) {
+					doRead();
+				}
 			} catch (const RequestParseError&) {
 				doWrite(
 						"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n"
@@ -64,10 +67,13 @@ private:
 
 	void onRequestReceived(Request& req)
 	{
+		keepAlive = req.keepAlive;
+		const std::string ver = req.httpVersion.toString();
+		const std::string extraHeaders = keepAlive ? "" : "Connection: close\r\n";
 		if (req.type != HTTP_GET) {
 			doWrite(
-					"HTTP/1.1 405 Method Not Allowed\r\nAllow: GET\r\n"
-					"Content-Type: text/plain\r\n"
+					"HTTP/" + ver + " 405 Method Not Allowed\r\nAllow: GET\r\n" +
+					extraHeaders + "Content-Type: text/plain\r\n"
 					"Content-Length: 24\r\n\r\n405 Method Not Allowed\r\n");
 			return;
 		}
@@ -75,16 +81,19 @@ private:
 			Url url = parseUrl(req.url);
 			if ("/" == url.path) {
 				doWrite(
-						"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+						"HTTP/" + ver + " 200 OK\r\n" +
+						extraHeaders + "Content-Type: text/plain\r\n"
 						"Content-Length: 15\r\n\r\nHello, World!\r\n");
 			} else {
 				doWrite(
-						"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
+						"HTTP/" + ver + " 404 Not Found\r\n" +
+						extraHeaders + "Content-Type: text/plain\r\n"
 						"Content-Length: 15\r\n\r\n404 Not Found\r\n");
 			}
 		} catch (const UrlParseError&) {
 			doWrite(
-					"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n"
+					"HTTP/" + ver + " 400 Bad Request\r\n" +
+					extraHeaders + "Content-Type: text/plain\r\n"
 					"Content-Length: 31\r\n\r\n400 Bad Request (invalid url)\r\n");
 		}
 	}

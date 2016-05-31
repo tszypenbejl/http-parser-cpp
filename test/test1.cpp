@@ -5,9 +5,16 @@
 #include <list>
 #include "../HttpParser.hpp"
 
+bool operator==(const http::HttpVersion& lhs, const http::HttpVersion& rhs)
+{
+	return lhs.major == rhs.major && lhs.minor == rhs.minor;
+}
+
 bool operator==(const http::Request& lhs, const http::Request& rhs)
 {
-	return lhs.type == rhs.type && lhs.url == rhs.url && lhs.headers == rhs.headers && lhs.body == rhs.body;
+	return lhs.type == rhs.type && lhs.httpVersion == rhs.httpVersion
+			&& lhs.url == rhs.url && lhs.headers == rhs.headers
+			&& lhs.body == rhs.body;
 }
 
 int main()
@@ -34,7 +41,15 @@ int main()
 	assert(parser.parsedRequests.at(0) == parser.parsedRequests.at(2));
 	assert(parser.parsedRequests.at(0) == parser.parsedRequests.at(3));
 	assert(parser.parsedRequests.at(0) == parser.parsedRequests.at(4));
-	//std::cout << parser.parsedRequests.front() << std::endl;
+
+	const Request& r = parser.parsedRequests.front();
+	assert(HTTP_GET == r.type);
+	assert(1 == r.httpVersion.major && 1 == r.httpVersion.minor);
+	assert("/formhandler?par1=koko+jumbo&par2=kinematograf" == r.url);
+	assert(1 == r.headers.size());
+	assert(1 == r.headers.count("Host"));
+	assert("example.com" == r.headers.find("Host")->second);
+	//std::cout << r << std::endl;
 
 	parser.parsedRequests.clear();
 

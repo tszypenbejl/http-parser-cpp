@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <functional>
 #include <iterator>
+#include <cstdio> /* for snprintf */
 #include <cassert>
 
 namespace http {
@@ -223,20 +224,35 @@ Url parseUrl(const std::string& input, bool isConnect = false)
 	return parsedUrl;
 }
 
+struct HttpVersion
+{
+	unsigned short major = 0;
+	unsigned short minor = 0;
+public:
+	std::string toString() const
+	{
+		std::string ret;
+		ret.reserve(3);
+		char buf[12];
+		(void) std::snprintf(buf, sizeof(buf), "%u", major);
+		ret.append(buf);
+		ret.append(".");
+		(void) std::snprintf(buf, sizeof(buf), "%u", minor);
+		ret.append(buf);
+		return ret;
+	}
+};
+
 struct Request
 {
 	using Type = enum http_method;
 public:
 	Type type = HTTP_HEAD;
+	HttpVersion httpVersion;
 	std::string url;
 	std::string body;
 	Headers headers;
-public:
-	Request() = default;
-	Request(const Request&) = default;
-	Request(Request&&) = default;
-	Request& operator=(const Request&) = default;
-	Request& operator=(Request&&) = default;
+	bool keepAlive = false;
 };
 
 class Parser
@@ -266,9 +282,8 @@ public:
 		totalConsumedLength += consumedLength;
 		if (consumedLength != inputLength || HTTP_PARSER_ERRNO(&p) != HPE_OK) {
 			std::ostringstream errMsg;
-			errMsg << "HTTP Parse error on character "
-					<< totalConsumedLength << " (character " << p.nread
-					<< " in current request): " << http_errno_name(HTTP_PARSER_ERRNO(&p));
+			errMsg << "HTTP Parse error on character " << totalConsumedLength
+					<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p));
 			throw RequestParseError(errMsg.str().c_str());
 		}
 	}
@@ -367,6 +382,9 @@ private:
 	int onMessageComplete()
 	{
 		currentRequest.type = static_cast<Request::Type>(p.method);
+		currentRequest.httpVersion.major = p.http_major;
+		currentRequest.httpVersion.minor = p.http_minor;
+		currentRequest.keepAlive = (http_should_keep_alive(&p) != 0);
 		if (requestConsumer) {
 			requestConsumer(std::move(currentRequest));
 		} else {
@@ -393,6 +411,13 @@ private:
 } /* namespace http */
 
 template<typename StreamT>
+StreamT& operator<<(StreamT& stream, const http::HttpVersion& ver)
+{
+	stream << ver.toString();
+	return stream;
+}
+
+template<typename StreamT>
 StreamT& operator<<(StreamT& stream, http::Request::Type reqType)
 {
 	stream << http_method_str(reqType);
@@ -402,7 +427,7 @@ StreamT& operator<<(StreamT& stream, http::Request::Type reqType)
 template<typename StreamT>
 StreamT& operator<<(StreamT& stream, const http::Request& req)
 {
-	stream << "HTTP " << req.type << " request\n"
+	stream << "HTTP/" << req.httpVersion << " " << req.type << " request\n"
 			<< "\turl: '" << req.url << "'\n"
 			<< "\theaders:\n";
 	for (const auto& fvPair: req.headers) {
