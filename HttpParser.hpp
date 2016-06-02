@@ -12,12 +12,28 @@
 #include <iterator>
 #include <cstdio> /* for snprintf */
 #include <cassert>
+#if defined(WIN32) || defined(WIN64) /* TODO: check if that actually helps*/
+#include <cstring>
+#define strcasecmp _stricmp
+#else
+#include <strings.h>
+#endif
 
 namespace http {
 
-class Request;
+namespace detail {
 
-using Headers = std::map<std::string, std::string>;
+struct HeaderNameLess
+{
+	bool operator()	(const std::string& s1, const std::string& s2) const
+			{ return strcasecmp(s1.c_str(), s2.c_str()) < 0; }
+};
+
+} /* namespace detail */
+
+using Headers = std::map<std::string, std::string, detail::HeaderNameLess>;
+
+class Request;
 using RequestConsumer = std::function<void(Request&&)>;
 
 namespace detail {
@@ -159,6 +175,12 @@ public:
 	UrlParseError(const std::string& msg): ParseError(msg) {}
 };
 
+class HeaderNotFoundError: public std::runtime_error
+{
+public:
+	HeaderNotFoundError(const std::string& msg): std::runtime_error(msg) {}
+};
+
 template <typename IterT>
 struct IsContiguousMemoryForwardIterator: std::is_pointer<IterT> {};
 
@@ -256,6 +278,24 @@ public:
 	std::string body;
 	Headers headers;
 	bool keepAlive = false;
+public:
+	bool hasHeader(const std::string& headerName) const noexcept
+			{ return headers.count(headerName) > 0U; }
+	const std::string& getHeader(const std::string& headerName) const
+	{
+		Headers::const_iterator it = headers.find(headerName);
+		if (headers.cend() == it) {
+			throw HeaderNotFoundError(
+					"Request does not have '" + headerName + "' header");
+		}
+		return it->second;
+	}
+	const std::string& getHeader(const std::string& headerName,
+			const std::string& defaultValue) const noexcept
+	{
+		Headers::const_iterator it = headers.find(headerName);
+		return headers.cend() == it ? defaultValue : it->second;
+	}
 };
 
 class Parser

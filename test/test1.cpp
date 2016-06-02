@@ -51,6 +51,23 @@ int main()
 	assert("example.com" == r.headers.find("Host")->second);
 	//std::cout << r << std::endl;
 
+	assert(r.hasHeader("Host"));
+	assert(r.hasHeader("HOST"));
+	assert(r.hasHeader("host"));
+	assert(r.hasHeader("hOsT"));
+	assert("example.com" == r.getHeader("host"));
+	assert("example.com" == r.getHeader("host", "value-if-not-found"));
+	assert(!r.hasHeader("Content-Type"));
+	assert("text/plain" == r.getHeader("Content-Type", "text/plain"));
+	bool headerNotFoundErrorOccurred = false;
+	try {
+		(void) r.getHeader("Content-Type");
+	} catch (const HeaderNotFoundError&) {
+		//cerr << e.what() << endl;
+		headerNotFoundErrorOccurred = true;
+	}
+	assert(headerNotFoundErrorOccurred);
+
 	parser.parsedRequests.clear();
 
 	cout << "If you can see this message, the test passed OK" << endl;
