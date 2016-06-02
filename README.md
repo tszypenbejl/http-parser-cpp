@@ -7,6 +7,5 @@ License: BSD.
 
 TODO:
 * better tests
-* chunking support,
 * http response parser,
 * handle protocol upgrades,

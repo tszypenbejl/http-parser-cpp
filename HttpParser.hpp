@@ -122,6 +122,9 @@ public:
 private:
 	void onSingleHeaderComplete()
 	{
+		if (currentHeaderField.empty()) {
+			return;
+		}
 		std::string& headerValue = headers[currentHeaderField];
 		if (headerValue.empty()) {
 			headerValue = std::move(currentHeaderValue);
@@ -395,15 +398,13 @@ private:
 
 	int onChunkHeader()
 	{
-		// std::cout << __FUNCTION__ << " (" << p.content_length << ")" << std::endl;
-		// TODO
+		headerAssembler.reset();
 		return 0;
 	}
 
 	int onChunkComplete()
 	{
-		// std::cout << __FUNCTION__ << std::endl;
-		// TODO
+		headerAssembler.onHeadersComplete();
 		return 0;
 	}
 };
