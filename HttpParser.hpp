@@ -36,6 +36,30 @@ using Headers = std::map<std::string, std::string, detail::HeaderNameLess>;
 class Request;
 using RequestConsumer = std::function<void(Request&&)>;
 
+class ParseError: public std::runtime_error
+{
+public:
+	ParseError(const std::string& msg): std::runtime_error(msg) {}
+};
+
+class RequestParseError: public ParseError
+{
+public:
+	RequestParseError(const std::string& msg): ParseError(msg) {}
+};
+
+class UrlParseError: public ParseError
+{
+public:
+	UrlParseError(const std::string& msg): ParseError(msg) {}
+};
+
+class HeaderNotFoundError: public std::runtime_error
+{
+public:
+	HeaderNotFoundError(const std::string& msg): std::runtime_error(msg) {}
+};
+
 namespace detail {
 
 template<typename ParserT>
@@ -155,30 +179,27 @@ private:
 	}
 };
 
-} /* namespace detail */
-
-class ParseError: public std::runtime_error
+struct ConvenientHeaders // use this class as a mixin in Request and Response
 {
+	Headers headers;
 public:
-	ParseError(const std::string& msg): std::runtime_error(msg) {}
-};
-
-class RequestParseError: public ParseError
-{
-public:
-	RequestParseError(const std::string& msg): ParseError(msg) {}
-};
-
-class UrlParseError: public ParseError
-{
-public:
-	UrlParseError(const std::string& msg): ParseError(msg) {}
-};
-
-class HeaderNotFoundError: public std::runtime_error
-{
-public:
-	HeaderNotFoundError(const std::string& msg): std::runtime_error(msg) {}
+	bool hasHeader(const std::string& headerName) const noexcept
+			{ return headers.count(headerName) > 0U; }
+	const std::string& getHeader(const std::string& headerName) const
+	{
+		Headers::const_iterator it = headers.find(headerName);
+		if (headers.cend() == it) {
+			throw HeaderNotFoundError(
+					"Request does not have '" + headerName + "' header");
+		}
+		return it->second;
+	}
+	const std::string& getHeader(const std::string& headerName,
+			const std::string& defaultValue) const noexcept
+	{
+		Headers::const_iterator it = headers.find(headerName);
+		return headers.cend() == it ? defaultValue : it->second;
+	}
 };
 
 template <typename IterT>
@@ -201,122 +222,25 @@ struct IsContiguousMemoryForwardIterator
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 #endif
 
-struct Url
-{
-	std::string schema;
-	std::string host;
-	std::string path;
-	std::string query;
-	std::string fragment;
-	std::string userinfo;
-	unsigned port = 0;
-};
-
-Url parseUrl(const std::string& input, bool isConnect = false)
-{
-	http_parser_url u;
-	http_parser_url_init(&u);
-	int err = http_parser_parse_url(
-			input.c_str(), input.size(), int(isConnect), &u);
-	if (err) {
-		throw UrlParseError("Failed to parse this url: '" + input + "'");
-	}
-
-	Url parsedUrl;
-
-	using FieldDef = std::pair<http_parser_url_fields, std::string Url::*>;
-	static const FieldDef stringFields[] = {
-		{ UF_SCHEMA, &Url::schema },
-		{ UF_HOST, &Url::host },
-		{ UF_PATH, &Url::path },
-		{ UF_QUERY, &Url::query },
-		{ UF_FRAGMENT, &Url::fragment },
-		{ UF_USERINFO, &Url::userinfo }
-	};
-	for (const FieldDef& field: stringFields) {
-		if (u.field_set & (1 << field.first)) {
-			parsedUrl.*field.second = input.substr(
-					u.field_data[field.first].off, u.field_data[field.first].len);
-		}
-	}
-
-	if (u.field_set & (1 << UF_PORT)) {
-		parsedUrl.port = std::stoul(input.substr(
-				u.field_data[UF_PORT].off, u.field_data[UF_PORT].len
-		));
-	}
-
-	return parsedUrl;
-}
-
-struct HttpVersion
-{
-	unsigned short major = 0;
-	unsigned short minor = 0;
-public:
-	std::string toString() const
-	{
-		std::string ret;
-		ret.reserve(3);
-		char buf[12];
-		(void) std::snprintf(buf, sizeof(buf), "%u", major);
-		ret.append(buf);
-		ret.append(".");
-		(void) std::snprintf(buf, sizeof(buf), "%u", minor);
-		ret.append(buf);
-		return ret;
-	}
-};
-
-struct Request
-{
-	using Type = enum http_method;
-public:
-	Type type = HTTP_HEAD;
-	HttpVersion httpVersion;
-	std::string url;
-	std::string body;
-	Headers headers;
-	bool keepAlive = false;
-public:
-	bool hasHeader(const std::string& headerName) const noexcept
-			{ return headers.count(headerName) > 0U; }
-	const std::string& getHeader(const std::string& headerName) const
-	{
-		Headers::const_iterator it = headers.find(headerName);
-		if (headers.cend() == it) {
-			throw HeaderNotFoundError(
-					"Request does not have '" + headerName + "' header");
-		}
-		return it->second;
-	}
-	const std::string& getHeader(const std::string& headerName,
-			const std::string& defaultValue) const noexcept
-	{
-		Headers::const_iterator it = headers.find(headerName);
-		return headers.cend() == it ? defaultValue : it->second;
-	}
-};
-
-class Parser
+class ParserBase
 {
 protected:
 	http_parser p;
 	http_parser_settings& parserSettings;
 	std::size_t totalConsumedLength;
 
-	Parser(http_parser_type parserType, http_parser_settings& parserSettings)
+	ParserBase(http_parser_type parserType, http_parser_settings& parserSettings)
 		: parserSettings(parserSettings), totalConsumedLength(0)
 	{
 		http_parser_init(&p, parserType);
 		p.data = this;
 	}
 
-	virtual ~Parser() {}
+	virtual ~ParserBase() {}
 
 public:
-	Parser(const Parser&) = delete;
-	Parser& operator=(const Parser&) = delete;
+	ParserBase(const ParserBase&) = delete;
+	ParserBase& operator=(const ParserBase&) = delete;
 
 	void feed(const char* input, std::size_t inputLength)
 	{
@@ -358,7 +282,39 @@ private:
 	}
 };
 
-class RequestParser: public Parser
+} /* namespace detail */
+
+struct HttpVersion
+{
+	unsigned short major = 0;
+	unsigned short minor = 0;
+public:
+	std::string toString() const
+	{
+		std::string ret;
+		ret.reserve(3);
+		char buf[12];
+		(void) std::snprintf(buf, sizeof(buf), "%u", major);
+		ret.append(buf);
+		ret.append(".");
+		(void) std::snprintf(buf, sizeof(buf), "%u", minor);
+		ret.append(buf);
+		return ret;
+	}
+};
+
+struct Request: detail::ConvenientHeaders
+{
+	using Type = enum http_method;
+public:
+	Type type = HTTP_HEAD;
+	HttpVersion httpVersion;
+	std::string url;
+	std::string body;
+	bool keepAlive = false;
+};
+
+class RequestParser: public detail::ParserBase
 {
 	Request currentRequest;
 	detail::HeaderAssembler headerAssembler;
@@ -369,11 +325,11 @@ public:
 
 public:
 	RequestParser()
-		: Parser(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
 			headerAssembler(currentRequest.headers) {}
 
 	RequestParser(RequestConsumer requestConsumer)
-		: Parser(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
 			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer) {}
 
 private:
@@ -448,6 +404,54 @@ private:
 		return 0;
 	}
 };
+
+struct Url
+{
+	std::string schema;
+	std::string host;
+	std::string path;
+	std::string query;
+	std::string fragment;
+	std::string userinfo;
+	unsigned port = 0;
+};
+
+Url parseUrl(const std::string& input, bool isConnect = false)
+{
+	http_parser_url u;
+	http_parser_url_init(&u);
+	int err = http_parser_parse_url(
+			input.c_str(), input.size(), int(isConnect), &u);
+	if (err) {
+		throw UrlParseError("Failed to parse this url: '" + input + "'");
+	}
+
+	Url parsedUrl;
+
+	using FieldDef = std::pair<http_parser_url_fields, std::string Url::*>;
+	static const FieldDef stringFields[] = {
+		{ UF_SCHEMA, &Url::schema },
+		{ UF_HOST, &Url::host },
+		{ UF_PATH, &Url::path },
+		{ UF_QUERY, &Url::query },
+		{ UF_FRAGMENT, &Url::fragment },
+		{ UF_USERINFO, &Url::userinfo }
+	};
+	for (const FieldDef& field: stringFields) {
+		if (u.field_set & (1 << field.first)) {
+			parsedUrl.*field.second = input.substr(
+					u.field_data[field.first].off, u.field_data[field.first].len);
+		}
+	}
+
+	if (u.field_set & (1 << UF_PORT)) {
+		parsedUrl.port = std::stoul(input.substr(
+				u.field_data[UF_PORT].off, u.field_data[UF_PORT].len
+		));
+	}
+
+	return parsedUrl;
+}
 
 } /* namespace http */
 
