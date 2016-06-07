@@ -33,9 +33,6 @@ struct HeaderNameLess
 
 using Headers = std::map<std::string, std::string, detail::HeaderNameLess>;
 
-class Request;
-using RequestConsumer = std::function<void(Request&&)>;
-
 class ParseError: public std::runtime_error
 {
 public:
@@ -276,7 +273,7 @@ private:
 	typename std::enable_if<IsContiguousMemoryForwardIterator<IterT>::value>::type
 	feedIter(IterT begin, IterT end)
 	{
-		const char *buf = &(*begin);
+		const char* buf = &(*begin);
 		const std::size_t len = end - begin;
 		feed(buf, len);
 	}
@@ -313,6 +310,18 @@ public:
 	std::string body;
 	bool keepAlive = false;
 };
+
+struct Response: detail::ConvenientHeaders
+{
+	unsigned statusCode = 0;
+	std::string statusText;
+	HttpVersion httpVersion;
+	std::string body;
+	bool keepAlive = false;
+};
+
+using RequestConsumer = std::function<void(Request&&)>;
+using ResponseConsumer = std::function<void(Response&&)>;
 
 class RequestParser: public detail::ParserBase
 {
@@ -405,6 +414,100 @@ private:
 	}
 };
 
+class ResponseParser: public detail::ParserBase
+{
+	Response currentResponse;
+	detail::HeaderAssembler headerAssembler;
+	ResponseConsumer responseConsumer;
+
+public:
+	std::deque<Response> parsedResponses;
+
+public:
+	ResponseParser()
+		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
+			headerAssembler(currentResponse.headers) {}
+
+	ResponseParser(ResponseConsumer responseConsumer)
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+			headerAssembler(currentResponse.headers),
+			responseConsumer(responseConsumer) {}
+
+private:
+	friend struct detail::Callbacks<ResponseParser>;
+
+	int onMessageBegin()
+	{
+		currentResponse = Response();
+		headerAssembler.reset();
+		return 0;
+	}
+
+	int onUrl(const char* data, std::size_t length)
+	{
+		(void) data;
+		(void) length;
+		assert(false); // not reached
+		return 0;
+	}
+
+	int onStatus(const char* data, std::size_t length)
+	{
+		currentResponse.statusText.append(data, length);
+		return 0;
+	}
+
+	int onHeaderField(const char* data, std::size_t length)
+	{
+		headerAssembler.onHeaderField(data, length);
+		return 0;
+	}
+
+	int onHeaderValue(const char* data, std::size_t length)
+	{
+		headerAssembler.onHeaderValue(data, length);
+		return 0;
+	}
+
+	int onHeadersComplete()
+	{
+		headerAssembler.onHeadersComplete();
+		return 0;
+	}
+
+	int onBody(const char* data, std::size_t length)
+	{
+		currentResponse.body.append(data, length);
+		return 0;
+	}
+
+	int onMessageComplete()
+	{
+		currentResponse.statusCode = p.status_code;
+		currentResponse.httpVersion.major = p.http_major;
+		currentResponse.httpVersion.minor = p.http_minor;
+		currentResponse.keepAlive = (http_should_keep_alive(&p) != 0);
+		if (responseConsumer) {
+			responseConsumer(std::move(currentResponse));
+		} else {
+			parsedResponses.push_back(std::move(currentResponse));
+		}
+		return 0;
+	}
+
+	int onChunkHeader()
+	{
+		headerAssembler.reset();
+		return 0;
+	}
+
+	int onChunkComplete()
+	{
+		headerAssembler.onHeadersComplete();
+		return 0;
+	}
+};
+
 struct Url
 {
 	std::string schema;
@@ -472,13 +575,28 @@ StreamT& operator<<(StreamT& stream, http::Request::Type reqType)
 template<typename StreamT>
 StreamT& operator<<(StreamT& stream, const http::Request& req)
 {
-	stream << "HTTP/" << req.httpVersion << " " << req.type << " request\n"
-			<< "\turl: '" << req.url << "'\n"
-			<< "\theaders:\n";
+	stream << "HTTP/" << req.httpVersion << " " << req.type << " request.\n"
+			<< "\tUrl: '" << req.url << "'\n"
+			<< "\tHeaders:\n";
 	for (const auto& fvPair: req.headers) {
 		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
 	}
-	stream << "\tbody is " << req.body.size() << " bytes long.";
+	stream << "\tBody is " << req.body.size() << " bytes long.\n\tKeepAlive: "
+			<< (req.keepAlive ? "yes" : "no") << ".";
+	return stream;
+}
+
+template<typename StreamT>
+StreamT& operator<<(StreamT& stream, const http::Response& resp)
+{
+	stream << "HTTP/" << resp.httpVersion << " '" << resp.statusCode << "' "
+			<< resp.statusText << " response.\n"
+			<< "\tHeaders:\n";
+	for (const auto& fvPair: resp.headers) {
+		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
+	}
+	stream << "\tBody is " << resp.body.size() << " bytes long.\n\tKeepAlive: "
+			<< (resp.keepAlive ? "yes" : "no") << ".";
 	return stream;
 }
 
