@@ -45,6 +45,12 @@ public:
 	RequestParseError(const std::string& msg): ParseError(msg) {}
 };
 
+class ResponseParseError: public ParseError
+{
+public:
+	ResponseParseError(const std::string& msg): ParseError(msg) {}
+};
+
 class UrlParseError: public ParseError
 {
 public:
@@ -233,6 +239,8 @@ protected:
 		p.data = this;
 	}
 
+	virtual void throwParseError(const std::string& errorMessage) = 0;
+
 	virtual ~ParserBase() {}
 
 public:
@@ -248,7 +256,7 @@ public:
 			std::ostringstream errMsg;
 			errMsg << "HTTP Parse error on character " << totalConsumedLength
 					<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p));
-			throw RequestParseError(errMsg.str().c_str());
+			throwParseError(errMsg.str());
 		}
 	}
 
@@ -342,6 +350,10 @@ public:
 			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer) {}
 
 private:
+	void throwParseError(const std::string& errorMessage)
+			{ throw RequestParseError(errorMessage); }
+
+private:
 	friend struct detail::Callbacks<RequestParser>;
 
 	int onMessageBegin()
@@ -433,6 +445,9 @@ public:
 			headerAssembler(currentResponse.headers),
 			responseConsumer(responseConsumer) {}
 
+private:
+	void throwParseError(const std::string& errorMessage)
+			{ throw ResponseParseError(errorMessage); }
 private:
 	friend struct detail::Callbacks<ResponseParser>;
 
