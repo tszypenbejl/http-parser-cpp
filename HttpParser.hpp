@@ -33,6 +33,9 @@ struct HeaderNameLess
 
 using Headers = std::map<std::string, std::string, detail::HeaderNameLess>;
 
+using ProtocolUpgradeHandler =
+		std::function<void(const char* begin, const char* end)>;
+
 class ParseError: public std::runtime_error
 {
 public:
@@ -231,7 +234,12 @@ protected:
 	http_parser p;
 	http_parser_settings& parserSettings;
 	std::size_t totalConsumedLength;
+	ProtocolUpgradeHandler protocolUpgradeHandler;
 
+public:
+	std::string protocolUpgradeData;
+
+protected:
 	ParserBase(http_parser_type parserType, http_parser_settings& parserSettings)
 		: parserSettings(parserSettings), totalConsumedLength(0)
 	{
@@ -241,22 +249,34 @@ protected:
 
 	virtual void throwParseError(const std::string& errorMessage) = 0;
 
-	virtual ~ParserBase() {}
-
 public:
 	ParserBase(const ParserBase&) = delete;
 	ParserBase& operator=(const ParserBase&) = delete;
 
+	virtual ~ParserBase() {}
+
 	void feed(const char* input, std::size_t inputLength)
 	{
-		std::size_t consumedLength = http_parser_execute(
-				&p, &parserSettings, input, inputLength);
-		totalConsumedLength += consumedLength;
-		if (consumedLength != inputLength || HTTP_PARSER_ERRNO(&p) != HPE_OK) {
-			std::ostringstream errMsg;
-			errMsg << "HTTP Parse error on character " << totalConsumedLength
-					<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p));
-			throwParseError(errMsg.str());
+		if (p.upgrade) {
+			if (protocolUpgradeHandler) {
+				protocolUpgradeHandler(input, input + inputLength);
+			} else {
+				protocolUpgradeData.append(input, inputLength);
+			}
+		} else {
+			std::size_t consumedLength = http_parser_execute(
+					&p, &parserSettings, input, inputLength);
+			totalConsumedLength += consumedLength;
+			if (HTTP_PARSER_ERRNO(&p) != HPE_OK || consumedLength > inputLength
+					|| (consumedLength < inputLength && !p.upgrade)) {
+				std::ostringstream errMsg;
+				errMsg << "HTTP Parse error on character " << totalConsumedLength
+						<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p));
+				throwParseError(errMsg.str());
+			}
+			if (p.upgrade) {
+				feed(input + consumedLength, inputLength - consumedLength);
+			}
 		}
 	}
 
@@ -348,6 +368,21 @@ public:
 	RequestParser(RequestConsumer requestConsumer)
 		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
 			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer) {}
+
+	RequestParser(ProtocolUpgradeHandler protocolUpgradeHandler)
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+			headerAssembler(currentRequest.headers)
+	{
+		this->protocolUpgradeHandler = protocolUpgradeHandler;
+	}
+
+	RequestParser(RequestConsumer requestConsumer,
+			ProtocolUpgradeHandler protocolUpgradeHandler)
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer)
+		{
+			this->protocolUpgradeHandler = protocolUpgradeHandler;
+		}
 
 private:
 	void throwParseError(const std::string& errorMessage)
@@ -444,6 +479,22 @@ public:
 		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
 			headerAssembler(currentResponse.headers),
 			responseConsumer(responseConsumer) {}
+
+	ResponseParser(ProtocolUpgradeHandler protocolUpgradeHandler)
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+			headerAssembler(currentResponse.headers)
+	{
+		this->protocolUpgradeHandler = protocolUpgradeHandler;
+	}
+
+	ResponseParser(ResponseConsumer responseConsumer,
+			ProtocolUpgradeHandler protocolUpgradeHandler)
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+			headerAssembler(currentResponse.headers),
+			responseConsumer(responseConsumer)
+	{
+		this->protocolUpgradeHandler = protocolUpgradeHandler;
+	}
 
 private:
 	void throwParseError(const std::string& errorMessage)
