@@ -1,11 +1,6 @@
 # http-parser-cpp
 A quick and dirty c++ wrapper for https://github.com/nodejs/http-parser in just one header file.
 
-This is a work in progress - not ready for production yet. See test/test1.cpp for usage.
+This is a work in progress - may not be ready for production yet. See tests and examples for usage.
 
-License: BSD.
-
-TODO:
-* better tests
-* http response parser,
-* handle protocol upgrades,
+License: MIT.

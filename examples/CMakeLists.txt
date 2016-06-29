@@ -1,7 +1,0 @@
-set(Boost_ADDITIONAL_VERSIONS "1.58.0" "1.59.0" "1.60.0")
-find_package(Boost 1.57.0 COMPONENTS system)
-if(Boost_FOUND)
-	include_directories(${Boost_INCLUDE_DIRS})
-	add_executable (http_server_using_boost_asio http_server_using_boost_asio.cpp)
-	target_link_libraries(http_server_using_boost_asio ${Boost_LIBRARIES} http_parser)
-endif()
