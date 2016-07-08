@@ -42,6 +42,12 @@ public:
 	ParseError(const std::string& msg): std::runtime_error(msg) {}
 };
 
+class TooBigError: public std::runtime_error
+{
+public:
+	TooBigError(const std::string& msg): std::runtime_error(msg) {}
+};
+
 class RequestParseError: public ParseError
 {
 public:
@@ -52,6 +58,18 @@ class ResponseParseError: public ParseError
 {
 public:
 	ResponseParseError(const std::string& msg): ParseError(msg) {}
+};
+
+class RequestTooBig: public TooBigError
+{
+public:
+	RequestTooBig(const std::string& msg): TooBigError(msg) {}
+};
+
+class ResponseTooBig: public TooBigError
+{
+public:
+	ResponseTooBig(const std::string& msg): TooBigError(msg) {}
 };
 
 class UrlParseError: public ParseError
@@ -173,7 +191,7 @@ private:
 		}
 		std::string& headerValue = headers[currentHeaderField];
 		if (headerValue.empty()) {
-			headerValue = std::move(currentHeaderValue);
+			headerValue.swap(currentHeaderValue);
 		} else if (!currentHeaderValue.empty()) {
 			headerValue.reserve(1 + currentHeaderValue.size());
 			headerValue.append(",");
@@ -183,6 +201,29 @@ private:
 		currentHeaderValue.clear();
 		currentHeaderFieldComplete = false;
 	}
+};
+
+class LengthLimiter
+{
+public:
+	using OnLimitExceeded =
+			std::function<void(std::size_t, std::size_t)>;
+private:
+	std::size_t currentLength = 0;
+	std::size_t maxLength = 0;
+	OnLimitExceeded onLimitExceeded;
+public:
+	LengthLimiter(OnLimitExceeded onLimitExceeded):
+			onLimitExceeded(onLimitExceeded) {}
+	inline void setMaxLength(std::size_t max) { maxLength = max; }
+	inline void checkLength(std::size_t delta)
+	{
+		currentLength += delta;
+		if (maxLength && currentLength > maxLength) {
+			onLimitExceeded(currentLength, maxLength);
+		}
+	}
+	inline void reset() { currentLength = 0; }
 };
 
 struct ConvenientHeaders // use this class as a mixin in Request and Response
@@ -233,7 +274,7 @@ class ParserBase
 protected:
 	http_parser p;
 	http_parser_settings& parserSettings;
-	std::size_t totalConsumedLength;
+	std::size_t totalConsumedLength = 0;
 	ProtocolUpgradeHandler protocolUpgradeHandler;
 
 public:
@@ -241,7 +282,7 @@ public:
 
 protected:
 	ParserBase(http_parser_type parserType, http_parser_settings& parserSettings)
-		: parserSettings(parserSettings), totalConsumedLength(0)
+		: parserSettings(parserSettings)
 	{
 		http_parser_init(&p, parserType);
 		p.data = this;
@@ -356,6 +397,14 @@ class RequestParser: public detail::ParserBase
 	Request currentRequest;
 	detail::HeaderAssembler headerAssembler;
 	RequestConsumer requestConsumer;
+	detail::LengthLimiter requestLengthLimiter
+	{
+		[](std::size_t, std::size_t limit)
+		{
+			throw RequestTooBig("Request exceeded size limit of "
+					+ std::to_string(limit));
+		}
+	};
 
 public:
 	std::deque<Request> parsedRequests;
@@ -380,12 +429,15 @@ public:
 			ProtocolUpgradeHandler protocolUpgradeHandler)
 		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
 			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer)
-		{
-			this->protocolUpgradeHandler = protocolUpgradeHandler;
-		}
+	{
+		this->protocolUpgradeHandler = protocolUpgradeHandler;
+	}
+
+	void setMaxRequestLength(std::size_t maxLength) // 0 means unlimited
+			{ requestLengthLimiter.setMaxLength(maxLength); }
 
 private:
-	void throwParseError(const std::string& errorMessage)
+	void throwParseError(const std::string& errorMessage) override
 			{ throw RequestParseError(errorMessage); }
 
 private:
@@ -395,11 +447,13 @@ private:
 	{
 		currentRequest = Request();
 		headerAssembler.reset();
+		requestLengthLimiter.reset();
 		return 0;
 	}
 
 	int onUrl(const char* data, std::size_t length)
 	{
+		requestLengthLimiter.checkLength(length);
 		currentRequest.url.append(data, length);
 		return 0;
 	}
@@ -412,12 +466,14 @@ private:
 
 	int onHeaderField(const char* data, std::size_t length)
 	{
+		requestLengthLimiter.checkLength(length);
 		headerAssembler.onHeaderField(data, length);
 		return 0;
 	}
 
 	int onHeaderValue(const char* data, std::size_t length)
 	{
+		requestLengthLimiter.checkLength(length);
 		headerAssembler.onHeaderValue(data, length);
 		return 0;
 	}
@@ -430,6 +486,7 @@ private:
 
 	int onBody(const char* data, std::size_t length)
 	{
+		requestLengthLimiter.checkLength(length);
 		currentRequest.body.append(data, length);
 		return 0;
 	}
@@ -466,6 +523,14 @@ class ResponseParser: public detail::ParserBase
 	Response currentResponse;
 	detail::HeaderAssembler headerAssembler;
 	ResponseConsumer responseConsumer;
+	detail::LengthLimiter responseLengthLimiter
+	{
+		[](std::size_t, std::size_t limit)
+		{
+			throw ResponseTooBig("Response exceeded size limit of "
+					+ std::to_string(limit));
+		}
+	};
 
 public:
 	std::deque<Response> parsedResponses;
@@ -476,12 +541,12 @@ public:
 			headerAssembler(currentResponse.headers) {}
 
 	ResponseParser(ResponseConsumer responseConsumer)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
 			headerAssembler(currentResponse.headers),
 			responseConsumer(responseConsumer) {}
 
 	ResponseParser(ProtocolUpgradeHandler protocolUpgradeHandler)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
 			headerAssembler(currentResponse.headers)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
@@ -489,16 +554,20 @@ public:
 
 	ResponseParser(ResponseConsumer responseConsumer,
 			ProtocolUpgradeHandler protocolUpgradeHandler)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
+		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
 			headerAssembler(currentResponse.headers),
 			responseConsumer(responseConsumer)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
 	}
 
+	void setMaxResponseLength(std::size_t maxLength) // 0 means unlimited
+			{ responseLengthLimiter.setMaxLength(maxLength); }
+
 private:
-	void throwParseError(const std::string& errorMessage)
+	void throwParseError(const std::string& errorMessage) override
 			{ throw ResponseParseError(errorMessage); }
+
 private:
 	friend struct detail::Callbacks<ResponseParser>;
 
@@ -506,6 +575,7 @@ private:
 	{
 		currentResponse = Response();
 		headerAssembler.reset();
+		responseLengthLimiter.reset();
 		return 0;
 	}
 
@@ -525,12 +595,14 @@ private:
 
 	int onHeaderField(const char* data, std::size_t length)
 	{
+		responseLengthLimiter.checkLength(length);
 		headerAssembler.onHeaderField(data, length);
 		return 0;
 	}
 
 	int onHeaderValue(const char* data, std::size_t length)
 	{
+		responseLengthLimiter.checkLength(length);
 		headerAssembler.onHeaderValue(data, length);
 		return 0;
 	}
@@ -543,6 +615,7 @@ private:
 
 	int onBody(const char* data, std::size_t length)
 	{
+		responseLengthLimiter.checkLength(length);
 		currentResponse.body.append(data, length);
 		return 0;
 	}
