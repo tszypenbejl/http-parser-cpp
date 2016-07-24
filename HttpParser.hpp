@@ -66,10 +66,22 @@ public:
 	RequestTooBig(const std::string& msg): TooBigError(msg) {}
 };
 
+class RequestHeadersTooBig: public TooBigError
+{
+public:
+	RequestHeadersTooBig(const std::string& msg): TooBigError(msg) {}
+};
+
 class ResponseTooBig: public TooBigError
 {
 public:
 	ResponseTooBig(const std::string& msg): TooBigError(msg) {}
+};
+
+class ResponseHeadersTooBig: public TooBigError
+{
+public:
+	ResponseHeadersTooBig(const std::string& msg): TooBigError(msg) {}
 };
 
 class UrlParseError: public ParseError
@@ -631,6 +643,114 @@ private:
 		} else {
 			parsedResponses.push_back(std::move(currentResponse));
 		}
+		return 0;
+	}
+
+	int onChunkHeader()
+	{
+		headerAssembler.reset();
+		return 0;
+	}
+
+	int onChunkComplete()
+	{
+		headerAssembler.onHeadersComplete();
+		return 0;
+	}
+};
+
+using BigResponseCallback = std::function<void(const Response &response,
+		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
+
+class BigResponseParser: public detail::ParserBase
+{
+	Response currentResponse;
+	detail::HeaderAssembler headerAssembler { currentResponse.headers };
+	BigResponseCallback responseCallback;
+	detail::LengthLimiter headersLengthLimiter
+	{
+		[](std::size_t, std::size_t limit)
+		{
+			throw ResponseHeadersTooBig("Response headers exceeded size limit of "
+					+ std::to_string(limit));
+		}
+	};
+
+public:
+	BigResponseParser(BigResponseCallback responseCallback,
+			ProtocolUpgradeHandler protocolUpgradeHandler = nullptr)
+		: ParserBase(HTTP_RESPONSE,
+					detail::ParserSettings<BigResponseParser>::get().s),
+			responseCallback(responseCallback)
+	{
+		this->protocolUpgradeHandler = protocolUpgradeHandler;
+	}
+
+	void setMaxHeadersLength(std::size_t maxLength) // 0 means unlimited
+			{ headersLengthLimiter.setMaxLength(maxLength); }
+
+private:
+	void throwParseError(const std::string& errorMessage) override
+			{ throw ResponseParseError(errorMessage); }
+
+private:
+	friend struct detail::Callbacks<BigResponseParser>;
+
+	int onMessageBegin()
+	{
+		currentResponse = Response();
+		headerAssembler.reset();
+		headersLengthLimiter.reset();
+		return 0;
+	}
+
+	int onUrl(const char* data, std::size_t length)
+	{
+		(void) data;
+		(void) length;
+		assert(false); // not reached
+		return 0;
+	}
+
+	int onStatus(const char* data, std::size_t length)
+	{
+		currentResponse.statusText.append(data, length);
+		return 0;
+	}
+
+	int onHeaderField(const char* data, std::size_t length)
+	{
+		headersLengthLimiter.checkLength(length);
+		headerAssembler.onHeaderField(data, length);
+		return 0;
+	}
+
+	int onHeaderValue(const char* data, std::size_t length)
+	{
+		headersLengthLimiter.checkLength(length);
+		headerAssembler.onHeaderValue(data, length);
+		return 0;
+	}
+
+	int onHeadersComplete()
+	{
+		headerAssembler.onHeadersComplete();
+		currentResponse.statusCode = p.status_code;
+		currentResponse.httpVersion.major = p.http_major;
+		currentResponse.httpVersion.minor = p.http_minor;
+		currentResponse.keepAlive = (http_should_keep_alive(&p) != 0);
+		return 0;
+	}
+
+	int onBody(const char* data, std::size_t length)
+	{
+		responseCallback(currentResponse, data, length, false);
+		return 0;
+	}
+
+	int onMessageComplete()
+	{
+		responseCallback(currentResponse, nullptr, 0, true);
 		return 0;
 	}
 
