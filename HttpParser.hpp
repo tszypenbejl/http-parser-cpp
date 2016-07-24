@@ -101,26 +101,107 @@ namespace detail {
 template<typename ParserT>
 struct Callbacks
 {
-	static int onMessageBegin(http_parser* p)
-			{ return ((ParserT*) p->data)->onMessageBegin(); }
-	static int onUrl(http_parser* p, const char* data, size_t length)
-			{ return ((ParserT*) p->data)->onUrl(data, length); }
-	static int onStatus(http_parser* p, const char* data, size_t length)
-			{ return ((ParserT*) p->data)->onStatus(data, length); }
+	static int onMessageBegin(http_parser* p) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onMessageBegin();
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onUrl(http_parser* p, const char* data, size_t length) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onUrl(data, length);
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onStatus(http_parser* p, const char* data, size_t length) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onStatus(data, length);
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
 	static int onHeaderField(http_parser* p, const char* data, size_t length)
-			{ return ((ParserT*) p->data)->onHeaderField(data, length); }
+			 noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onHeaderField(data, length);
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
 	static int onHeaderValue(http_parser* p, const char* data, size_t length)
-			{ return ((ParserT*) p->data)->onHeaderValue(data, length); }
-	static int onHeadersComplete(http_parser* p)
-			{ return ((ParserT*) p->data)->onHeadersComplete(); }
-	static int onMessageComplete(http_parser* p)
-			{ return ((ParserT*) p->data)->onMessageComplete(); }
-	static int onBody(http_parser* p, const char* data, size_t length)
-			{ return ((ParserT*) p->data)->onBody(data, length); }
-	static int onChunkHeader(http_parser* p)
-			{ return ((ParserT*) p->data)->onChunkHeader(); }
-	static int onChunkComplete(http_parser* p)
-			{ return ((ParserT*) p->data)->onChunkComplete(); }
+			noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onHeaderValue(data, length);
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onHeadersComplete(http_parser* p) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onHeadersComplete();
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onMessageComplete(http_parser* p) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onMessageComplete();
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onBody(http_parser* p, const char* data, size_t length) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onBody(data, length);
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onChunkHeader(http_parser* p) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onChunkHeader();
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
+
+	static int onChunkComplete(http_parser* p) noexcept
+	{
+		try {
+			return ((ParserT*) p->data)->onChunkComplete();
+		} catch (...) {
+			((ParserT*) p->data)->callbackException = std::current_exception();
+		}
+		return -1;
+	}
 };
 
 template<typename ParserT>
@@ -286,6 +367,7 @@ class ParserBase
 protected:
 	http_parser p;
 	http_parser_settings& parserSettings;
+	std::exception_ptr callbackException;
 	std::size_t totalConsumedLength = 0;
 	ProtocolUpgradeHandler protocolUpgradeHandler;
 
@@ -320,6 +402,11 @@ public:
 			std::size_t consumedLength = http_parser_execute(
 					&p, &parserSettings, input, inputLength);
 			totalConsumedLength += consumedLength;
+			if (callbackException) {
+				std::exception_ptr e = nullptr;
+				std::swap(e, callbackException);
+				std::rethrow_exception(e);
+			}
 			if (HTTP_PARSER_ERRNO(&p) != HPE_OK || consumedLength > inputLength
 					|| (consumedLength < inputLength && !p.upgrade)) {
 				std::ostringstream errMsg;
