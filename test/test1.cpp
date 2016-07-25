@@ -3,19 +3,8 @@
 #include <iostream>
 #include <vector>
 #include <list>
+#include "testhelpers.hpp"
 #include "../HttpParser.hpp"
-
-bool operator==(const http::HttpVersion& lhs, const http::HttpVersion& rhs)
-{
-	return lhs.major == rhs.major && lhs.minor == rhs.minor;
-}
-
-bool operator==(const http::Request& lhs, const http::Request& rhs)
-{
-	return lhs.type == rhs.type && lhs.httpVersion == rhs.httpVersion
-			&& lhs.url == rhs.url && lhs.headers == rhs.headers
-			&& lhs.body == rhs.body;
-}
 
 int main()
 {
