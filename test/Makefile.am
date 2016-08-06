@@ -1,5 +1,5 @@
-TESTS = test1 test2 test3 test4 test5 test6 test7 test8
-check_PROGRAMS = test1 test2 test3 test4 test5 test6 test7 test8
+TESTS = test1 test2 test3 test4 test5 test6 test7 test8 test9
+check_PROGRAMS = test1 test2 test3 test4 test5 test6 test7 test8 test9
 test1_SOURCES = testhelpers.hpp test1.cpp
 test2_SOURCES = test2.cpp
 test3_SOURCES = test3.cpp
@@ -8,3 +8,4 @@ test5_SOURCES = testhelpers.hpp test5.cpp
 test6_SOURCES = test6.cpp
 test7_SOURCES = test7.cpp
 test8_SOURCES = testhelpers.hpp test8.cpp
+test9_SOURCES = testhelpers.hpp test9.cpp

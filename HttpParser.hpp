@@ -746,6 +746,113 @@ private:
 	}
 };
 
+using BigRequestCallback = std::function<void(const Request &request,
+		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
+
+class BigRequestParser: public detail::ParserBase
+{
+	Request currentRequest;
+	detail::HeaderAssembler headerAssembler { currentRequest.headers };
+	BigRequestCallback requestCallback;
+	detail::LengthLimiter headersLengthLimiter
+	{
+		[](std::size_t, std::size_t limit)
+		{
+			throw RequestHeadersTooBig("Request headers exceeded size limit of "
+					+ std::to_string(limit));
+		}
+	};
+
+public:
+	BigRequestParser(BigRequestCallback requestCallback,
+			ProtocolUpgradeHandler protocolUpgradeHandler = nullptr)
+		: ParserBase(HTTP_REQUEST,
+					detail::ParserSettings<BigRequestParser>::get().s),
+			requestCallback(requestCallback)
+	{
+		this->protocolUpgradeHandler = protocolUpgradeHandler;
+	}
+
+	void setMaxHeadersLength(std::size_t maxLength) // 0 means unlimited
+			{ headersLengthLimiter.setMaxLength(maxLength); }
+
+private:
+	void throwParseError(const std::string& errorMessage) override
+			{ throw RequestParseError(errorMessage); }
+
+private:
+	friend struct detail::Callbacks<BigRequestParser>;
+
+	int onMessageBegin()
+	{
+		currentRequest = Request();
+		headerAssembler.reset();
+		headersLengthLimiter.reset();
+		return 0;
+	}
+
+	int onUrl(const char* data, std::size_t length)
+	{
+		headersLengthLimiter.checkLength(length);
+		currentRequest.url.append(data, length);
+		return 0;
+	}
+
+	int onStatus(const char* data, std::size_t length)
+	{
+		assert(false); // not reached
+		return 0;
+	}
+
+	int onHeaderField(const char* data, std::size_t length)
+	{
+		headersLengthLimiter.checkLength(length);
+		headerAssembler.onHeaderField(data, length);
+		return 0;
+	}
+
+	int onHeaderValue(const char* data, std::size_t length)
+	{
+		headersLengthLimiter.checkLength(length);
+		headerAssembler.onHeaderValue(data, length);
+		return 0;
+	}
+
+	int onHeadersComplete()
+	{
+		headerAssembler.onHeadersComplete();
+		currentRequest.type = static_cast<Request::Type>(p.method);
+		currentRequest.httpVersion.major = p.http_major;
+		currentRequest.httpVersion.minor = p.http_minor;
+		currentRequest.keepAlive = (http_should_keep_alive(&p) != 0);
+		return 0;
+	}
+
+	int onBody(const char* data, std::size_t length)
+	{
+		requestCallback(currentRequest, data, length, false);
+		return 0;
+	}
+
+	int onMessageComplete()
+	{
+		requestCallback(currentRequest, nullptr, 0, true);
+		return 0;
+	}
+
+	int onChunkHeader()
+	{
+		headerAssembler.reset();
+		return 0;
+	}
+
+	int onChunkComplete()
+	{
+		headerAssembler.onHeadersComplete();
+		return 0;
+	}
+};
+
 using BigResponseCallback = std::function<void(const Response &response,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
@@ -801,6 +908,7 @@ private:
 
 	int onStatus(const char* data, std::size_t length)
 	{
+		headersLengthLimiter.checkLength(length);
 		currentResponse.statusText.append(data, length);
 		return 0;
 	}
