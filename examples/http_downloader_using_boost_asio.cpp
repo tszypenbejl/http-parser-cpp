@@ -1,11 +1,20 @@
 /* based on http://www.boost.org/doc/libs/1_61_0/doc/html/boost_asio/example/cpp03/echo/blocking_tcp_echo_client.cpp */
 
 #include <iostream>
+#include <fstream>
+#include <libgen.h> /* for basename */
 #include <boost/asio.hpp>
 #include "../HttpParser.hpp"
 
 using boost::asio::ip::tcp;
 using namespace http;
+
+std::string determineFileName(const std::string& urlPath,
+		const http::Response& response)
+{
+	// TODO this obviously needs refinement
+	return basename((char*) urlPath.c_str());
+}
 
 int main(int argc, char* argv[])
 {
@@ -34,7 +43,6 @@ int main(int argc, char* argv[])
 		if (0 == url.port) { // no port specified explicitly in the URL
 			url.port = 80; // good as long as we only support http://
 		}
-		//std::cout << url << std::endl;
 
 		std::ostringstream ss;
 		ss << "GET " << url.path;
@@ -62,15 +70,41 @@ int main(int argc, char* argv[])
 		boost::asio::write(socket, boost::asio::buffer(request));
 
 		std::cout << "Reading response." << std::endl;
-		// TODO: use BigResponseParser to save the response body to a file.
-		// TODO: determine file name (may want to get response headers first
-		char reply[2048];
-		size_t reply_length = boost::asio::read(socket,
-				boost::asio::buffer(reply, sizeof(reply)));
-		std::cout << "Reply is:\n";
-		std::cout.write(reply, reply_length);
-		std::cout << "\n";
-	} catch (const std::runtime_error &e) {
+		std::string fileName;
+		std::ofstream outputFile;
+		outputFile.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+		bool completed = false;
+		auto myCallback = [&] (const http::Response& response,
+				const char *bodyPart, std::size_t bodyPartLength, bool finished) {
+			if (!outputFile.is_open()) {
+				fileName = determineFileName(url.path, response);
+				std::cout << "Saving to " << fileName << std::endl;
+				outputFile.open(fileName,
+						std::ios::out | std::ios::trunc | std::ios::binary);
+			}
+			outputFile.write(bodyPart, bodyPartLength);
+			completed = finished;
+			if (completed) {
+				std::cout << "Done." << std::endl;
+			}
+		};
+		http::BigResponseParser parser(myCallback);
+		parser.setMaxHeadersLength(1024 * 1024);
+		while (!completed) {
+			boost::system::error_code ec;
+			char reply[2048];
+				size_t reply_length = boost::asio::read(socket,
+						boost::asio::buffer(reply, sizeof(reply)), ec);
+				if (!ec) {
+					parser.feed(reply, reply_length);
+				} else if (boost::asio::error::eof == ec) {
+					parser.feed(reply, reply_length);
+					parser.feedEof();
+				} else {
+					throw boost::system::system_error(ec);
+				}
+		}
+	} catch (const std::runtime_error& e) {
 		std::cerr << "Interrupted by exception: " << e.what() << std::endl;
 		return 1;
 	}
