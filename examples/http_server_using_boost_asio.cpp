@@ -54,7 +54,7 @@ private:
 				boost::asio::buffer(inputBuf, inputBufLen), readCallback);
 	}
 
-	void doWrite(const std::string response)
+	void doWrite(std::string response)
 	{
 		auto self(shared_from_this());
 		auto responseBuffer = std::make_shared<std::string>(std::move(response));

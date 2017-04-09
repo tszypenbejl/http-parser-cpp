@@ -12,6 +12,7 @@ using namespace http;
 std::string determineFileName(const std::string& urlPath,
 		const http::Response& response)
 {
+	(void) response;
 	// TODO this obviously needs refinement
 	return basename((char*) urlPath.c_str());
 }
