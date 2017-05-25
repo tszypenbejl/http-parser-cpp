@@ -39,61 +39,61 @@ using ProtocolUpgradeHandler =
 class ParseError: public std::runtime_error
 {
 public:
-	ParseError(const std::string& msg): std::runtime_error(msg) {}
+	using runtime_error::runtime_error;
 };
 
 class TooBigError: public std::runtime_error
 {
 public:
-	TooBigError(const std::string& msg): std::runtime_error(msg) {}
+	using runtime_error::runtime_error;
 };
 
 class RequestParseError: public ParseError
 {
 public:
-	RequestParseError(const std::string& msg): ParseError(msg) {}
+	using ParseError::ParseError;
 };
 
 class ResponseParseError: public ParseError
 {
 public:
-	ResponseParseError(const std::string& msg): ParseError(msg) {}
+	using ParseError::ParseError;
 };
 
 class RequestTooBig: public TooBigError
 {
 public:
-	RequestTooBig(const std::string& msg): TooBigError(msg) {}
+	using TooBigError::TooBigError;
 };
 
 class RequestHeadersTooBig: public TooBigError
 {
 public:
-	RequestHeadersTooBig(const std::string& msg): TooBigError(msg) {}
+	using TooBigError::TooBigError;
 };
 
 class ResponseTooBig: public TooBigError
 {
 public:
-	ResponseTooBig(const std::string& msg): TooBigError(msg) {}
+	using TooBigError::TooBigError;
 };
 
 class ResponseHeadersTooBig: public TooBigError
 {
 public:
-	ResponseHeadersTooBig(const std::string& msg): TooBigError(msg) {}
+	using TooBigError::TooBigError;
 };
 
 class UrlParseError: public ParseError
 {
 public:
-	UrlParseError(const std::string& msg): ParseError(msg) {}
+	using ParseError::ParseError;
 };
 
 class HeaderNotFoundError: public std::runtime_error
 {
 public:
-	HeaderNotFoundError(const std::string& msg): std::runtime_error(msg) {}
+	using runtime_error::runtime_error;
 };
 
 namespace detail {
