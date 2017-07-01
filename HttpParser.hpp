@@ -99,109 +99,50 @@ public:
 namespace detail {
 
 template<typename ParserT>
-struct Callbacks
+class Callbacks
 {
-	static int onMessageBegin(http_parser* p) noexcept
+	template<typename MethodT, typename... ArgsT>
+	inline static int call(http_parser* p, MethodT method, ArgsT... args)
 	{
+		ParserT& parser = *((ParserT*) p->data);
 		try {
-			return ((ParserT*) p->data)->onMessageBegin();
+			return (parser.*method)(args...);
 		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
+			parser.callbackException = std::current_exception();
 		}
 		return -1;
+		
 	}
+public:
+	static int onMessageBegin(http_parser* p) noexcept
+			{ return call(p, &ParserT::onMessageBegin); }
 
 	static int onUrl(http_parser* p, const char* data, size_t length) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onUrl(data, length);
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onUrl, data, length); }
 
 	static int onStatus(http_parser* p, const char* data, size_t length) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onStatus(data, length);
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onStatus, data, length); }
 
-	static int onHeaderField(http_parser* p, const char* data, size_t length)
-			 noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onHeaderField(data, length);
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+	static int onHeaderField(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &ParserT::onHeaderField, data, length); }
 
-	static int onHeaderValue(http_parser* p, const char* data, size_t length)
-			noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onHeaderValue(data, length);
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+	static int onHeaderValue(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &ParserT::onHeaderValue, data, length); }
 
 	static int onHeadersComplete(http_parser* p) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onHeadersComplete();
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onHeadersComplete); }
 
 	static int onMessageComplete(http_parser* p) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onMessageComplete();
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onMessageComplete); }
 
 	static int onBody(http_parser* p, const char* data, size_t length) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onBody(data, length);
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onBody, data, length); }
 
 	static int onChunkHeader(http_parser* p) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onChunkHeader();
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onChunkHeader); }
 
 	static int onChunkComplete(http_parser* p) noexcept
-	{
-		try {
-			return ((ParserT*) p->data)->onChunkComplete();
-		} catch (...) {
-			((ParserT*) p->data)->callbackException = std::current_exception();
-		}
-		return -1;
-	}
+			{ return call(p, &ParserT::onChunkComplete); }
 };
 
 template<typename ParserT>
@@ -437,6 +378,7 @@ private:
 			feed(&c, 1);
 		}
 	}
+
 	template<typename IterT>
 	typename std::enable_if<IsContiguousMemoryForwardIterator<IterT>::value>::type
 	feedIter(IterT begin, IterT end)
