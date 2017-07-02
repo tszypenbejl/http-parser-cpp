@@ -410,24 +410,50 @@ public:
 	}
 };
 
-struct Request: detail::ConvenientHeaders
+struct RequestHead: detail::ConvenientHeaders
 {
-	using Type = enum http_method;
+	using RequestType = enum http_method;
 public:
-	Type type = HTTP_HEAD;
+	RequestType type = HTTP_HEAD;
 	HttpVersion httpVersion;
 	std::string url;
-	std::string body;
 	bool keepAlive = false;
 };
 
-struct Response: detail::ConvenientHeaders
+struct Request: private RequestHead
+{
+	using RequestHead::headers;
+	using RequestHead::type;
+	using RequestHead::httpVersion;
+	using RequestHead::url;
+	using RequestHead::keepAlive;
+	std::string body;
+public:
+	using RequestHead::hasHeader;
+	using RequestHead::getHeader;
+	RequestHead& getHead() noexcept { return *this; }
+};
+
+struct ResponseHead: detail::ConvenientHeaders
 {
 	unsigned statusCode = 0;
 	std::string statusText;
 	HttpVersion httpVersion;
-	std::string body;
 	bool keepAlive = false;
+};
+
+struct Response: private ResponseHead
+{
+	using ResponseHead::headers;
+	using ResponseHead::statusCode;
+	using ResponseHead::statusText;
+	using ResponseHead::httpVersion;
+	using ResponseHead::keepAlive;
+	std::string body;
+public:
+	using ResponseHead::hasHeader;
+	using ResponseHead::getHeader;
+	ResponseHead& getHead() noexcept { return *this; }
 };
 
 using RequestConsumer = std::function<void(Request&&)>;
@@ -534,7 +560,7 @@ private:
 
 	int onMessageComplete()
 	{
-		currentRequest.type = static_cast<Request::Type>(p.method);
+		currentRequest.type = static_cast<RequestHead::RequestType>(p.method);
 		currentRequest.httpVersion.major = p.http_major;
 		currentRequest.httpVersion.minor = p.http_minor;
 		currentRequest.keepAlive = (http_should_keep_alive(&p) != 0);
@@ -688,12 +714,12 @@ private:
 	}
 };
 
-using BigRequestCallback = std::function<void(const Request &request,
+using BigRequestCallback = std::function<void(const RequestHead &requestHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
 class BigRequestParser: public detail::ParserBase
 {
-	Request currentRequest;
+	RequestHead currentRequest;
 	detail::HeaderAssembler headerAssembler { currentRequest.headers };
 	BigRequestCallback requestCallback;
 	detail::LengthLimiter headersLengthLimiter
@@ -708,8 +734,7 @@ class BigRequestParser: public detail::ParserBase
 public:
 	BigRequestParser(BigRequestCallback requestCallback,
 			ProtocolUpgradeHandler protocolUpgradeHandler = nullptr)
-		: ParserBase(HTTP_REQUEST,
-					detail::ParserSettings<BigRequestParser>::get().s),
+		: ParserBase(HTTP_REQUEST, detail::ParserSettings<BigRequestParser>::get().s),
 			requestCallback(requestCallback)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
@@ -727,7 +752,7 @@ private:
 
 	int onMessageBegin()
 	{
-		currentRequest = Request();
+		currentRequest = RequestHead();
 		headerAssembler.reset();
 		headersLengthLimiter.reset();
 		return 0;
@@ -763,7 +788,7 @@ private:
 	int onHeadersComplete()
 	{
 		headerAssembler.onHeadersComplete();
-		currentRequest.type = static_cast<Request::Type>(p.method);
+		currentRequest.type = static_cast<RequestHead::RequestType>(p.method);
 		currentRequest.httpVersion.major = p.http_major;
 		currentRequest.httpVersion.minor = p.http_minor;
 		currentRequest.keepAlive = (http_should_keep_alive(&p) != 0);
@@ -795,12 +820,12 @@ private:
 	}
 };
 
-using BigResponseCallback = std::function<void(const Response &response,
+using BigResponseCallback = std::function<void(const ResponseHead &responseHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
 class BigResponseParser: public detail::ParserBase
 {
-	Response currentResponse;
+	ResponseHead currentResponse;
 	detail::HeaderAssembler headerAssembler { currentResponse.headers };
 	BigResponseCallback responseCallback;
 	detail::LengthLimiter headersLengthLimiter
@@ -834,7 +859,7 @@ private:
 
 	int onMessageBegin()
 	{
-		currentResponse = Response();
+		currentResponse = ResponseHead();
 		headerAssembler.reset();
 		headersLengthLimiter.reset();
 		return 0;
@@ -962,7 +987,7 @@ StreamT& operator<<(StreamT& stream, const http::HttpVersion& ver)
 }
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, http::Request::Type reqType)
+StreamT& operator<<(StreamT& stream, http::RequestHead::RequestType reqType)
 {
 	stream << http_method_str(reqType);
 	return stream;

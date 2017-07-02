@@ -13,14 +13,14 @@ http::Response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
 	std::string body;
 	bool done = false;
 
-	auto callback = [&](const http::Response &resp, const char *bodyPart,
+	auto callback = [&](const http::ResponseHead &resp, const char *bodyPart,
 			std::size_t bodyPartLength, bool finished)
 	{
 		assert(!done);
 		body.append(bodyPart, bodyPartLength);
 		//std::cout << body.size() << std::endl;
 		if (finished) {
-			response = resp;
+			response.getHead() = resp;
 			done = true;
 		}
 	};
@@ -71,7 +71,7 @@ int main()
 	bool exceptionThrown = false;
 	try {
 		auto callback =
-				[](const Response &, const char *, std::size_t bodyPartLength, bool) {};
+				[](const ResponseHead &, const char *, std::size_t bodyPartLength, bool) {};
 		BigResponseParser bigParser(callback);
 		bigParser.setMaxHeadersLength(10);
 		bigParser.feed(sinput.begin(), sinput.end());
