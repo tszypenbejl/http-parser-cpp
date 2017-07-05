@@ -35,23 +35,20 @@ int main()
 	assert(HTTP_GET == r.type);
 	assert(1 == r.httpVersion.major && 1 == r.httpVersion.minor);
 	assert("/formhandler?par1=koko+jumbo&par2=kinematograf" == r.url);
-	assert(1 == r.headers.size());
-	assert(1 == r.headers.count("Host"));
-	assert("example.com" == r.headers.find("Host")->second);
-	//std::cout << r << std::endl;
+	assert(1 == r.header_count());
 
-	assert(r.hasHeader("Host"));
-	assert(r.hasHeader("HOST"));
-	assert(r.hasHeader("host"));
-	assert(r.hasHeader("hOsT"));
-	assert("example.com" == r.getHeader("host"));
-	assert("example.com" == r.getHeader("host", "value-if-not-found"));
-	assert(!r.hasHeader("Content-Type"));
-	assert("text/plain" == r.getHeader("Content-Type", "text/plain"));
+	assert(r.has_header("Host"));
+	assert(r.has_header("HOST"));
+	assert(r.has_header("host"));
+	assert(r.has_header("hOsT"));
+	assert("example.com" == r.header("host"));
+	assert("example.com" == r.header("host", "value-if-not-found"));
+	assert(!r.has_header("Content-Type"));
+	assert("text/plain" == r.header("Content-Type", "text/plain"));
 	bool headerNotFoundErrorOccurred = false;
 	try {
-		(void) r.getHeader("Content-Type");
-	} catch (const HeaderNotFoundError&) {
+		(void) r.header("Content-Type");
+	} catch (const header_not_found_error&) {
 		//cerr << e.what() << endl;
 		headerNotFoundErrorOccurred = true;
 	}

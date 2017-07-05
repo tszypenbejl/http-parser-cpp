@@ -41,10 +41,10 @@ int main()
 	assert(200U == r.statusCode);
 	assert("OK" == r.statusText);
 	assert(1 == r.httpVersion.major && 1 == r.httpVersion.minor);
-	assert(3 == r.headers.size());
-	assert("Tue, 07 Jun 2016 05:16:11 -0500" == r.getHeader("date"));
-	assert("text/plain" == r.getHeader("content-type"));
-	assert("15" == r.getHeader("content-length"));
+	assert(3 == r.header_count());
+	assert("Tue, 07 Jun 2016 05:16:11 -0500" == r.header("date"));
+	assert("text/plain" == r.header("content-type"));
+	assert("15" == r.header("content-length"));
 	assert("Hello, World!\r\n" == r.body);
 	//std::cout << r << std::endl;
 

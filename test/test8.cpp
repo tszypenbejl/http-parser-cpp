@@ -75,7 +75,7 @@ int main()
 		BigResponseParser bigParser(callback);
 		bigParser.setMaxHeadersLength(10);
 		bigParser.feed(sinput.begin(), sinput.end());
-	} catch (const ResponseHeadersTooBig &) {
+	} catch (const response_headers_too_big &) {
 		exceptionThrown = true;
 	}
 	assert(exceptionThrown);

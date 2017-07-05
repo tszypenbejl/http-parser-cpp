@@ -30,7 +30,7 @@ int main(int argc, char* argv[])
 		try {
 			url = parseUrl(argv[1]);
 			urlParsedOk = true;
-		} catch (const UrlParseError&) {
+		} catch (const url_parse_error&) {
 		}
 		if (!urlParsedOk || url.host.empty()) {
 			std::cerr << "This does not appear to be a valid URL of a HTTP resource: "

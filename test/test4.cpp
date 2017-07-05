@@ -36,18 +36,17 @@ int main()
 	assert(HTTP_POST == r.type);
 	assert(1 == r.httpVersion.major && 1 == r.httpVersion.minor);
 	assert("/handleform" == r.url);
-	assert(5 == r.headers.size());
-	assert(1 == r.headers.count("Host"));
-	assert(1 == r.headers.count("Content-Type"));
-	assert(1 == r.headers.count("Transfer-Encoding"));
-	assert(1 == r.headers.count("LateHeader1"));
-	assert(1 == r.headers.count("LateHeader2"));
-	assert("example.com" == r.headers.find("Host")->second);
-	assert("application/x-www-form-urlencoded" ==
-			r.headers.find("Content-Type")->second);
-	assert("chunked" == r.headers.find("Transfer-Encoding")->second);
-	assert("this example" == r.headers.find("LateHeader1")->second);
-	assert("consists of just two chunks" == r.headers.find("LateHeader2")->second);
+	assert(5 == r.header_count());
+	assert(r.has_header("Host"));
+	assert(r.has_header("Content-Type"));
+	assert(r.has_header("Transfer-Encoding"));
+	assert(r.has_header("LateHeader1"));
+	assert(r.has_header("LateHeader2"));
+	assert("example.com" == r.header("Host"));
+	assert("application/x-www-form-urlencoded" ==  r.header("Content-Type"));
+	assert("chunked" == r.header("Transfer-Encoding"));
+	assert("this example" == r.header("LateHeader1"));
+	assert("consists of just two chunks" == r.header("LateHeader2"));
 	assert("par1=koko+jumbo&par2=kinematograf" == r.body);
 
 	cout << "If you can see this message, the test passed OK" << endl;

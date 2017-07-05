@@ -21,76 +21,64 @@
 
 namespace http {
 
-namespace detail {
-
-struct HeaderNameLess
-{
-	bool operator()	(const std::string& s1, const std::string& s2) const
-			{ return strcasecmp(s1.c_str(), s2.c_str()) < 0; }
-};
-
-} /* namespace detail */
-
-using Headers = std::map<std::string, std::string, detail::HeaderNameLess>;
-
-using ProtocolUpgradeHandler =
+using protocol_upgrade_handler =
 		std::function<void(const char* begin, const char* end)>;
 
-class ParseError: public std::runtime_error
+class parse_error : public std::runtime_error
 {
 public:
 	using runtime_error::runtime_error;
 };
 
-class TooBigError: public std::runtime_error
+class too_big_error : public std::runtime_error
 {
 public:
 	using runtime_error::runtime_error;
 };
 
-class RequestParseError: public ParseError
+class request_parse_error : public parse_error
 {
 public:
-	using ParseError::ParseError;
+	using parse_error::parse_error;
 };
 
-class ResponseParseError: public ParseError
+class response_parse_error : public parse_error
 {
 public:
-	using ParseError::ParseError;
+	using parse_error::parse_error;
 };
 
-class RequestTooBig: public TooBigError
+class request_too_big : public too_big_error
 {
 public:
-	using TooBigError::TooBigError;
+	using too_big_error::too_big_error;
 };
 
-class RequestHeadersTooBig: public TooBigError
+class request_headers_too_big : public too_big_error
 {
 public:
-	using TooBigError::TooBigError;
+	using too_big_error::too_big_error;
 };
 
-class ResponseTooBig: public TooBigError
+class response_too_big : public too_big_error
 {
 public:
-	using TooBigError::TooBigError;
+	using too_big_error::too_big_error;
 };
 
-class ResponseHeadersTooBig: public TooBigError
+class response_headers_too_big : public too_big_error
 {
 public:
-	using TooBigError::TooBigError;
+	using too_big_error::too_big_error;
 };
 
-class UrlParseError: public ParseError
+class url_parse_error : public parse_error
 {
 public:
-	using ParseError::ParseError;
+	using parse_error::parse_error;
 };
 
-class HeaderNotFoundError: public std::runtime_error
+class header_not_found_error : public std::runtime_error
 {
 public:
 	using runtime_error::runtime_error;
@@ -98,13 +86,13 @@ public:
 
 namespace detail {
 
-template<typename ParserT>
-class Callbacks
+template<typename Parser>
+class callbacks
 {
 	template<typename MethodT, typename... ArgsT>
 	inline static int call(http_parser* p, MethodT method, ArgsT... args)
 	{
-		ParserT& parser = *((ParserT*) p->data);
+		Parser& parser = *((Parser*) p->data);
 		try {
 			return (parser.*method)(args...);
 		} catch (...) {
@@ -113,127 +101,136 @@ class Callbacks
 		return -1;
 		
 	}
+
 public:
-	static int onMessageBegin(http_parser* p) noexcept
-			{ return call(p, &ParserT::onMessageBegin); }
+	static int on_message_begin(http_parser* p) noexcept
+			{ return call(p, &Parser::on_message_begin); }
 
-	static int onUrl(http_parser* p, const char* data, size_t length) noexcept
-			{ return call(p, &ParserT::onUrl, data, length); }
+	static int on_url(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &Parser::on_url, data, length); }
 
-	static int onStatus(http_parser* p, const char* data, size_t length) noexcept
-			{ return call(p, &ParserT::onStatus, data, length); }
+	static int on_status(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &Parser::on_status, data, length); }
 
-	static int onHeaderField(http_parser* p, const char* data, size_t length) noexcept
-			{ return call(p, &ParserT::onHeaderField, data, length); }
+	static int on_header_field(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &Parser::on_header_field, data, length); }
 
-	static int onHeaderValue(http_parser* p, const char* data, size_t length) noexcept
-			{ return call(p, &ParserT::onHeaderValue, data, length); }
+	static int on_header_value(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &Parser::on_header_value, data, length); }
 
-	static int onHeadersComplete(http_parser* p) noexcept
-			{ return call(p, &ParserT::onHeadersComplete); }
+	static int on_headers_complete(http_parser* p) noexcept
+			{ return call(p, &Parser::on_headers_complete); }
 
-	static int onMessageComplete(http_parser* p) noexcept
-			{ return call(p, &ParserT::onMessageComplete); }
+	static int on_message_complete(http_parser* p) noexcept
+			{ return call(p, &Parser::on_message_complete); }
 
 	static int onBody(http_parser* p, const char* data, size_t length) noexcept
-			{ return call(p, &ParserT::onBody, data, length); }
+			{ return call(p, &Parser::onBody, data, length); }
 
-	static int onChunkHeader(http_parser* p) noexcept
-			{ return call(p, &ParserT::onChunkHeader); }
+	static int on_chunk_header(http_parser* p) noexcept
+			{ return call(p, &Parser::on_chunk_header); }
 
-	static int onChunkComplete(http_parser* p) noexcept
-			{ return call(p, &ParserT::onChunkComplete); }
+	static int on_chunk_complete(http_parser* p) noexcept
+			{ return call(p, &Parser::on_chunk_complete); }
 };
 
-template<typename ParserT>
-struct ParserSettings
+template<typename Parser>
+class parser_settings
 {
-	http_parser_settings s;
+	http_parser_settings s_;
 
 public:
-	static ParserSettings& get()
+	static http_parser_settings& get()
 	{
-		static ParserSettings instance;
-		return instance;
+		static parser_settings instance;
+		return instance.s_;
 	}
 
-	ParserSettings(const ParserSettings&) = delete;
-	ParserSettings(ParserSettings&&) = delete;
+	parser_settings(const parser_settings&) = delete;
+	parser_settings(parser_settings&&)      = delete;
 
 private:
-	ParserSettings()
+	parser_settings()
 	{
-		http_parser_settings_init(&s);
-		s.on_message_begin = &Callbacks<ParserT>::onMessageBegin;
-		s.on_url = &Callbacks<ParserT>::onUrl;
-		s.on_status = &Callbacks<ParserT>::onStatus;
-		s.on_header_field = &Callbacks<ParserT>::onHeaderField;
-		s.on_header_value = &Callbacks<ParserT>::onHeaderValue;
-		s.on_headers_complete = &Callbacks<ParserT>::onHeadersComplete;
-		s.on_body = &Callbacks<ParserT>::onBody;
-		s.on_message_complete = &Callbacks<ParserT>::onMessageComplete;
-		s.on_chunk_header = &Callbacks<ParserT>::onChunkHeader;
-		s.on_chunk_complete = &Callbacks<ParserT>::onChunkComplete;
+		http_parser_settings_init(&s_);
+		s_.on_message_begin    = &callbacks<Parser>::on_message_begin;
+		s_.on_url              = &callbacks<Parser>::on_url;
+		s_.on_status           = &callbacks<Parser>::on_status;
+		s_.on_header_field     = &callbacks<Parser>::on_header_field;
+		s_.on_header_value     = &callbacks<Parser>::on_header_value;
+		s_.on_headers_complete = &callbacks<Parser>::on_headers_complete;
+		s_.on_body             = &callbacks<Parser>::onBody;
+		s_.on_message_complete = &callbacks<Parser>::on_message_complete;
+		s_.on_chunk_header     = &callbacks<Parser>::on_chunk_header;
+		s_.on_chunk_complete   = &callbacks<Parser>::on_chunk_complete;
 	}
 };
 
-class HeaderAssembler
+struct header_name_less
 {
-	Headers& headers;
-	std::string currentHeaderField;
-	std::string currentHeaderValue;
-	bool currentHeaderFieldComplete = false;
+	bool operator()	(const std::string& s1, const std::string& s2) const
+			{ return strcasecmp(s1.c_str(), s2.c_str()) < 0; }
+};
+
+using headers = std::map<std::string, std::string, detail::header_name_less>;
+
+class header_assembler
+{
+	headers&    headers_;
+	std::string current_header_field_;
+	std::string current_header_value_;
+	bool        current_header_field_complete_ = false;
 
 public:
-	HeaderAssembler(Headers& headers): headers(headers) {}
-	HeaderAssembler(const HeaderAssembler&) = delete;
-	HeaderAssembler(HeaderAssembler&&) = delete;
-	HeaderAssembler& operator=(const HeaderAssembler&) = delete;
-	HeaderAssembler& operator=(HeaderAssembler&&) = delete;
+	header_assembler(headers& h): headers_(h) {}
+	header_assembler(const header_assembler&)            = delete;
+	header_assembler(header_assembler&&)                 = delete;
+	header_assembler& operator=(const header_assembler&) = delete;
+	header_assembler& operator=(header_assembler&&)      = delete;
 
 	void reset()
 	{
-		currentHeaderField.clear();
-		currentHeaderValue.clear();
-		currentHeaderFieldComplete = false;
+		current_header_field_.clear();
+		current_header_value_.clear();
+		current_header_field_complete_ = false;
 	}
 
-	void onHeaderField(const char* data, std::size_t length)
+	void on_header_field(const char* data, std::size_t length)
 	{
-		if (currentHeaderFieldComplete) {
-			onSingleHeaderComplete();
+		if (current_header_field_complete_) {
+			on_single_header_complete();
 		}
-		currentHeaderField.append(data, length);
+		current_header_field_.append(data, length);
 	}
 
-	void onHeaderValue(const char* data, std::size_t length)
+	void on_header_value(const char* data, std::size_t length)
 	{
-		currentHeaderValue.append(data, length);
-		currentHeaderFieldComplete = true;
+		current_header_value_.append(data, length);
+		current_header_field_complete_ = true;
 	}
 
-	void onHeadersComplete()
+	void on_headers_complete()
 	{
-		onSingleHeaderComplete();
+		on_single_header_complete();
 	}
 
 private:
-	void onSingleHeaderComplete()
+	void on_single_header_complete()
 	{
-		if (currentHeaderField.empty()) {
+		if (current_header_field_.empty()) {
 			return;
 		}
-		std::string& headerValue = headers[currentHeaderField];
-		if (headerValue.empty()) {
-			headerValue.swap(currentHeaderValue);
-		} else if (!currentHeaderValue.empty()) {
-			headerValue.reserve(1 + currentHeaderValue.size());
-			headerValue.append(",");
-			headerValue.append(currentHeaderValue);
+		std::string& header_value = headers_[current_header_field_];
+		if (header_value.empty()) {
+			header_value.swap(current_header_value_);
+		} else if (!current_header_value_.empty()) {
+			header_value.reserve(1 + current_header_value_.size());
+			header_value.append(",");
+			header_value.append(current_header_value_);
 		}
-		currentHeaderField.clear();
-		currentHeaderValue.clear();
-		currentHeaderFieldComplete = false;
+		current_header_field_.clear();
+		current_header_value_.clear();
+		current_header_field_complete_ = false;
 	}
 };
 
@@ -260,44 +257,58 @@ public:
 	inline void reset() { currentLength = 0; }
 };
 
-struct ConvenientHeaders // use this class as a mixin in Request and Response
+class headers_owner
 {
-	Headers headers;
+protected:
+	headers headers_;
+
 public:
-	bool hasHeader(const std::string& headerName) const noexcept
-			{ return headers.count(headerName) > 0U; }
-	const std::string& getHeader(const std::string& headerName) const
+	headers_owner()                                = default;
+	headers_owner(const headers_owner&)            = default;
+	headers_owner& operator=(const headers_owner&) = default;
+	headers_owner(headers_owner&&)                 = default;
+	headers_owner& operator=(headers_owner&&)      = default;
+
+	bool has_header(const std::string& headerName) const noexcept
+			{ return headers_.count(headerName) > 0U; }
+
+	const std::string& header(const std::string& headerName) const
 	{
-		Headers::const_iterator it = headers.find(headerName);
-		if (headers.cend() == it) {
-			throw HeaderNotFoundError(
+		headers::const_iterator it = headers_.find(headerName);
+		if (headers_.cend() == it) {
+			throw header_not_found_error(
 					"Request does not have '" + headerName + "' header");
 		}
 		return it->second;
 	}
-	const std::string& getHeader(const std::string& headerName,
+
+	const std::string& header(const std::string& headerName,
 			const std::string& defaultValue) const noexcept
 	{
-		Headers::const_iterator it = headers.find(headerName);
-		return headers.cend() == it ? defaultValue : it->second;
+		headers::const_iterator it = headers_.find(headerName);
+		return headers_.cend() == it ? defaultValue : it->second;
 	}
+
+	std::size_t header_count() const noexcept { return headers_.size(); }
+
+	const headers& all_headers() const noexcept { return headers_; }
 };
 
 template <typename IterT>
-struct IsContiguousMemoryForwardIterator: std::is_pointer<IterT> {};
+struct IsContiguousMemoryForwardIterator : std::is_pointer<IterT> {};
 
 template <>
 struct IsContiguousMemoryForwardIterator
-		<typename std::vector<char>::iterator>: std::true_type {};
+		<typename std::vector<char>::iterator> : std::true_type {};
 template <>
 struct IsContiguousMemoryForwardIterator
-		<typename std::vector<char>::const_iterator>: std::true_type {};
+		<typename std::vector<char>::const_iterator> : std::true_type {};
 template <>
 struct IsContiguousMemoryForwardIterator
-		<typename std::string::iterator>: std::true_type {};
+		<typename std::string::iterator> : std::true_type {};
 template <>
 struct IsContiguousMemoryForwardIterator
-		<typename std::string::const_iterator>: std::true_type {};
+		<typename std::string::const_iterator> : std::true_type {};
 
 #ifdef HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
@@ -307,17 +318,17 @@ class ParserBase
 {
 protected:
 	http_parser p;
-	http_parser_settings& parserSettings;
+	http_parser_settings& parser_settings_;
 	std::exception_ptr callbackException;
 	std::size_t totalConsumedLength = 0;
-	ProtocolUpgradeHandler protocolUpgradeHandler;
+	protocol_upgrade_handler protocolUpgradeHandler;
 
 public:
 	std::string protocolUpgradeData;
 
 protected:
 	ParserBase(http_parser_type parserType, http_parser_settings& parserSettings)
-		: parserSettings(parserSettings)
+		: parser_settings_(parserSettings)
 	{
 		http_parser_init(&p, parserType);
 		p.data = this;
@@ -341,7 +352,7 @@ public:
 			}
 		} else {
 			std::size_t consumedLength = http_parser_execute(
-					&p, &parserSettings, input, inputLength);
+					&p, &parser_settings_, input, inputLength);
 			totalConsumedLength += consumedLength;
 			if (callbackException) {
 				std::exception_ptr e = nullptr;
@@ -410,8 +421,9 @@ public:
 	}
 };
 
-struct RequestHead: detail::ConvenientHeaders
+struct RequestHead : detail::headers_owner
 {
+	friend class BigRequestParser;
 	using RequestType = enum http_method;
 public:
 	RequestType type = HTTP_HEAD;
@@ -420,55 +432,60 @@ public:
 	bool keepAlive = false;
 };
 
-struct Request: private RequestHead
+struct Request : private RequestHead
 {
-	using RequestHead::headers;
+	friend class RequestParser;
 	using RequestHead::type;
 	using RequestHead::httpVersion;
 	using RequestHead::url;
 	using RequestHead::keepAlive;
 	std::string body;
 public:
-	using RequestHead::hasHeader;
-	using RequestHead::getHeader;
+	using RequestHead::has_header;
+	using RequestHead::header;
+	using RequestHead::header_count;
+	using RequestHead::all_headers;
 	RequestHead& getHead() noexcept { return *this; }
 };
 
-struct ResponseHead: detail::ConvenientHeaders
+struct ResponseHead : detail::headers_owner
 {
+	friend class BigResponseParser;
 	unsigned statusCode = 0;
 	std::string statusText;
 	HttpVersion httpVersion;
 	bool keepAlive = false;
 };
 
-struct Response: private ResponseHead
+struct Response : private ResponseHead
 {
-	using ResponseHead::headers;
+	friend class ResponseParser;
 	using ResponseHead::statusCode;
 	using ResponseHead::statusText;
 	using ResponseHead::httpVersion;
 	using ResponseHead::keepAlive;
 	std::string body;
 public:
-	using ResponseHead::hasHeader;
-	using ResponseHead::getHeader;
+	using ResponseHead::has_header;
+	using ResponseHead::header;
+	using ResponseHead::header_count;
+	using ResponseHead::all_headers;
 	ResponseHead& getHead() noexcept { return *this; }
 };
 
 using RequestConsumer = std::function<void(Request&&)>;
 using ResponseConsumer = std::function<void(Response&&)>;
 
-class RequestParser: public detail::ParserBase
+class RequestParser : public detail::ParserBase
 {
 	Request currentRequest;
-	detail::HeaderAssembler headerAssembler;
+	detail::header_assembler header_assembler_;
 	RequestConsumer requestConsumer;
 	detail::LengthLimiter requestLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
-			throw RequestTooBig("Request exceeded size limit of "
+			throw request_too_big("Request exceeded size limit of "
 					+ std::to_string(limit));
 		}
 	};
@@ -478,24 +495,24 @@ public:
 
 public:
 	RequestParser()
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
-			headerAssembler(currentRequest.headers) {}
+		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
+			header_assembler_(currentRequest.headers_) {}
 
 	RequestParser(RequestConsumer requestConsumer)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
-			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer) {}
+		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
+			header_assembler_(currentRequest.headers_), requestConsumer(requestConsumer) {}
 
-	RequestParser(ProtocolUpgradeHandler protocolUpgradeHandler)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
-			headerAssembler(currentRequest.headers)
+	RequestParser(protocol_upgrade_handler protocolUpgradeHandler)
+		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
+			header_assembler_(currentRequest.headers_)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
 	}
 
 	RequestParser(RequestConsumer requestConsumer,
-			ProtocolUpgradeHandler protocolUpgradeHandler)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<RequestParser>::get().s),
-			headerAssembler(currentRequest.headers), requestConsumer(requestConsumer)
+			protocol_upgrade_handler protocolUpgradeHandler)
+		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
+			header_assembler_(currentRequest.headers_), requestConsumer(requestConsumer)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
 	}
@@ -505,49 +522,49 @@ public:
 
 private:
 	void throwParseError(const std::string& errorMessage) override
-			{ throw RequestParseError(errorMessage); }
+			{ throw request_parse_error(errorMessage); }
 
 private:
-	friend struct detail::Callbacks<RequestParser>;
+	friend struct detail::callbacks<RequestParser>;
 
-	int onMessageBegin()
+	int on_message_begin()
 	{
 		currentRequest = Request();
-		headerAssembler.reset();
+		header_assembler_.reset();
 		requestLengthLimiter.reset();
 		return 0;
 	}
 
-	int onUrl(const char* data, std::size_t length)
+	int on_url(const char* data, std::size_t length)
 	{
 		requestLengthLimiter.checkLength(length);
 		currentRequest.url.append(data, length);
 		return 0;
 	}
 
-	int onStatus(const char* data, std::size_t length)
+	int on_status(const char* data, std::size_t length)
 	{
 		assert(false); // not reached
 		return 0;
 	}
 
-	int onHeaderField(const char* data, std::size_t length)
+	int on_header_field(const char* data, std::size_t length)
 	{
 		requestLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderField(data, length);
+		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
-	int onHeaderValue(const char* data, std::size_t length)
+	int on_header_value(const char* data, std::size_t length)
 	{
 		requestLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderValue(data, length);
+		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
-	int onHeadersComplete()
+	int on_headers_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		return 0;
 	}
 
@@ -558,7 +575,7 @@ private:
 		return 0;
 	}
 
-	int onMessageComplete()
+	int on_message_complete()
 	{
 		currentRequest.type = static_cast<RequestHead::RequestType>(p.method);
 		currentRequest.httpVersion.major = p.http_major;
@@ -572,29 +589,29 @@ private:
 		return 0;
 	}
 
-	int onChunkHeader()
+	int on_chunk_header()
 	{
-		headerAssembler.reset();
+		header_assembler_.reset();
 		return 0;
 	}
 
-	int onChunkComplete()
+	int on_chunk_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		return 0;
 	}
 };
 
-class ResponseParser: public detail::ParserBase
+class ResponseParser : public detail::ParserBase
 {
 	Response currentResponse;
-	detail::HeaderAssembler headerAssembler;
+	detail::header_assembler header_assembler_;
 	ResponseConsumer responseConsumer;
 	detail::LengthLimiter responseLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
-			throw ResponseTooBig("Response exceeded size limit of "
+			throw response_too_big("Response exceeded size limit of "
 					+ std::to_string(limit));
 		}
 	};
@@ -604,25 +621,25 @@ public:
 
 public:
 	ResponseParser()
-		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
-			headerAssembler(currentResponse.headers) {}
+		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
+			header_assembler_(currentResponse.headers_) {}
 
 	ResponseParser(ResponseConsumer responseConsumer)
-		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
-			headerAssembler(currentResponse.headers),
+		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
+			header_assembler_(currentResponse.headers_),
 			responseConsumer(responseConsumer) {}
 
-	ResponseParser(ProtocolUpgradeHandler protocolUpgradeHandler)
-		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
-			headerAssembler(currentResponse.headers)
+	ResponseParser(protocol_upgrade_handler protocolUpgradeHandler)
+		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
+			header_assembler_(currentResponse.headers_)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
 	}
 
 	ResponseParser(ResponseConsumer responseConsumer,
-			ProtocolUpgradeHandler protocolUpgradeHandler)
-		: ParserBase(HTTP_RESPONSE, detail::ParserSettings<ResponseParser>::get().s),
-			headerAssembler(currentResponse.headers),
+			protocol_upgrade_handler protocolUpgradeHandler)
+		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
+			header_assembler_(currentResponse.headers_),
 			responseConsumer(responseConsumer)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
@@ -633,20 +650,20 @@ public:
 
 private:
 	void throwParseError(const std::string& errorMessage) override
-			{ throw ResponseParseError(errorMessage); }
+			{ throw response_parse_error(errorMessage); }
 
 private:
-	friend struct detail::Callbacks<ResponseParser>;
+	friend struct detail::callbacks<ResponseParser>;
 
-	int onMessageBegin()
+	int on_message_begin()
 	{
 		currentResponse = Response();
-		headerAssembler.reset();
+		header_assembler_.reset();
 		responseLengthLimiter.reset();
 		return 0;
 	}
 
-	int onUrl(const char* data, std::size_t length)
+	int on_url(const char* data, std::size_t length)
 	{
 		(void) data;
 		(void) length;
@@ -654,29 +671,29 @@ private:
 		return 0;
 	}
 
-	int onStatus(const char* data, std::size_t length)
+	int on_status(const char* data, std::size_t length)
 	{
 		currentResponse.statusText.append(data, length);
 		return 0;
 	}
 
-	int onHeaderField(const char* data, std::size_t length)
+	int on_header_field(const char* data, std::size_t length)
 	{
 		responseLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderField(data, length);
+		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
-	int onHeaderValue(const char* data, std::size_t length)
+	int on_header_value(const char* data, std::size_t length)
 	{
 		responseLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderValue(data, length);
+		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
-	int onHeadersComplete()
+	int on_headers_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		return 0;
 	}
 
@@ -687,7 +704,7 @@ private:
 		return 0;
 	}
 
-	int onMessageComplete()
+	int on_message_complete()
 	{
 		currentResponse.statusCode = p.status_code;
 		currentResponse.httpVersion.major = p.http_major;
@@ -701,15 +718,15 @@ private:
 		return 0;
 	}
 
-	int onChunkHeader()
+	int on_chunk_header()
 	{
-		headerAssembler.reset();
+		header_assembler_.reset();
 		return 0;
 	}
 
-	int onChunkComplete()
+	int on_chunk_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		return 0;
 	}
 };
@@ -717,24 +734,24 @@ private:
 using BigRequestCallback = std::function<void(const RequestHead &requestHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
-class BigRequestParser: public detail::ParserBase
+class BigRequestParser : public detail::ParserBase
 {
 	RequestHead currentRequest;
-	detail::HeaderAssembler headerAssembler { currentRequest.headers };
+	detail::header_assembler header_assembler_ { currentRequest.headers_ };
 	BigRequestCallback requestCallback;
 	detail::LengthLimiter headersLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
-			throw RequestHeadersTooBig("Request headers exceeded size limit of "
+			throw request_headers_too_big("Request headers exceeded size limit of "
 					+ std::to_string(limit));
 		}
 	};
 
 public:
 	BigRequestParser(BigRequestCallback requestCallback,
-			ProtocolUpgradeHandler protocolUpgradeHandler = nullptr)
-		: ParserBase(HTTP_REQUEST, detail::ParserSettings<BigRequestParser>::get().s),
+			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
+		: ParserBase(HTTP_REQUEST, detail::parser_settings<BigRequestParser>::get()),
 			requestCallback(requestCallback)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
@@ -745,49 +762,49 @@ public:
 
 private:
 	void throwParseError(const std::string& errorMessage) override
-			{ throw RequestParseError(errorMessage); }
+			{ throw request_parse_error(errorMessage); }
 
 private:
-	friend struct detail::Callbacks<BigRequestParser>;
+	friend struct detail::callbacks<BigRequestParser>;
 
-	int onMessageBegin()
+	int on_message_begin()
 	{
 		currentRequest = RequestHead();
-		headerAssembler.reset();
+		header_assembler_.reset();
 		headersLengthLimiter.reset();
 		return 0;
 	}
 
-	int onUrl(const char* data, std::size_t length)
+	int on_url(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.checkLength(length);
 		currentRequest.url.append(data, length);
 		return 0;
 	}
 
-	int onStatus(const char* data, std::size_t length)
+	int on_status(const char* data, std::size_t length)
 	{
 		assert(false); // not reached
 		return 0;
 	}
 
-	int onHeaderField(const char* data, std::size_t length)
+	int on_header_field(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderField(data, length);
+		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
-	int onHeaderValue(const char* data, std::size_t length)
+	int on_header_value(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderValue(data, length);
+		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
-	int onHeadersComplete()
+	int on_headers_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		currentRequest.type = static_cast<RequestHead::RequestType>(p.method);
 		currentRequest.httpVersion.major = p.http_major;
 		currentRequest.httpVersion.minor = p.http_minor;
@@ -801,21 +818,21 @@ private:
 		return 0;
 	}
 
-	int onMessageComplete()
+	int on_message_complete()
 	{
 		requestCallback(currentRequest, nullptr, 0, true);
 		return 0;
 	}
 
-	int onChunkHeader()
+	int on_chunk_header()
 	{
-		headerAssembler.reset();
+		header_assembler_.reset();
 		return 0;
 	}
 
-	int onChunkComplete()
+	int on_chunk_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		return 0;
 	}
 };
@@ -823,25 +840,25 @@ private:
 using BigResponseCallback = std::function<void(const ResponseHead &responseHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
-class BigResponseParser: public detail::ParserBase
+class BigResponseParser : public detail::ParserBase
 {
 	ResponseHead currentResponse;
-	detail::HeaderAssembler headerAssembler { currentResponse.headers };
+	detail::header_assembler header_assembler_ { currentResponse.headers_ };
 	BigResponseCallback responseCallback;
 	detail::LengthLimiter headersLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
-			throw ResponseHeadersTooBig("Response headers exceeded size limit of "
+			throw response_headers_too_big("Response headers exceeded size limit of "
 					+ std::to_string(limit));
 		}
 	};
 
 public:
 	BigResponseParser(BigResponseCallback responseCallback,
-			ProtocolUpgradeHandler protocolUpgradeHandler = nullptr)
+			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
 		: ParserBase(HTTP_RESPONSE,
-					detail::ParserSettings<BigResponseParser>::get().s),
+					detail::parser_settings<BigResponseParser>::get()),
 			responseCallback(responseCallback)
 	{
 		this->protocolUpgradeHandler = protocolUpgradeHandler;
@@ -852,20 +869,20 @@ public:
 
 private:
 	void throwParseError(const std::string& errorMessage) override
-			{ throw ResponseParseError(errorMessage); }
+			{ throw response_parse_error(errorMessage); }
 
 private:
-	friend struct detail::Callbacks<BigResponseParser>;
+	friend struct detail::callbacks<BigResponseParser>;
 
-	int onMessageBegin()
+	int on_message_begin()
 	{
 		currentResponse = ResponseHead();
-		headerAssembler.reset();
+		header_assembler_.reset();
 		headersLengthLimiter.reset();
 		return 0;
 	}
 
-	int onUrl(const char* data, std::size_t length)
+	int on_url(const char* data, std::size_t length)
 	{
 		(void) data;
 		(void) length;
@@ -873,30 +890,30 @@ private:
 		return 0;
 	}
 
-	int onStatus(const char* data, std::size_t length)
+	int on_status(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.checkLength(length);
 		currentResponse.statusText.append(data, length);
 		return 0;
 	}
 
-	int onHeaderField(const char* data, std::size_t length)
+	int on_header_field(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderField(data, length);
+		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
-	int onHeaderValue(const char* data, std::size_t length)
+	int on_header_value(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.checkLength(length);
-		headerAssembler.onHeaderValue(data, length);
+		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
-	int onHeadersComplete()
+	int on_headers_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		currentResponse.statusCode = p.status_code;
 		currentResponse.httpVersion.major = p.http_major;
 		currentResponse.httpVersion.minor = p.http_minor;
@@ -910,21 +927,21 @@ private:
 		return 0;
 	}
 
-	int onMessageComplete()
+	int on_message_complete()
 	{
 		responseCallback(currentResponse, nullptr, 0, true);
 		return 0;
 	}
 
-	int onChunkHeader()
+	int on_chunk_header()
 	{
-		headerAssembler.reset();
+		header_assembler_.reset();
 		return 0;
 	}
 
-	int onChunkComplete()
+	int on_chunk_complete()
 	{
-		headerAssembler.onHeadersComplete();
+		header_assembler_.on_headers_complete();
 		return 0;
 	}
 };
@@ -937,7 +954,7 @@ struct Url
 	std::string query;
 	std::string fragment;
 	std::string userinfo;
-	unsigned port = 0;
+	unsigned    port = 0;
 };
 
 Url parseUrl(const std::string& input, bool isConnect = false)
@@ -947,7 +964,7 @@ Url parseUrl(const std::string& input, bool isConnect = false)
 	int err = http_parser_parse_url(
 			input.c_str(), input.size(), int(isConnect), &u);
 	if (err) {
-		throw UrlParseError("Failed to parse this url: '" + input + "'");
+		throw url_parse_error("Failed to parse this url: '" + input + "'");
 	}
 
 	Url parsedUrl;
@@ -961,7 +978,7 @@ Url parseUrl(const std::string& input, bool isConnect = false)
 		{ UF_FRAGMENT, &Url::fragment },
 		{ UF_USERINFO, &Url::userinfo }
 	};
-	for (const FieldDef& field: stringFields) {
+	for (const FieldDef& field : stringFields) {
 		if (u.field_set & (1 << field.first)) {
 			parsedUrl.*field.second = input.substr(
 					u.field_data[field.first].off, u.field_data[field.first].len);
@@ -976,6 +993,8 @@ Url parseUrl(const std::string& input, bool isConnect = false)
 
 	return parsedUrl;
 }
+
+using detail::headers;
 
 } /* namespace http */
 
@@ -999,7 +1018,7 @@ StreamT& operator<<(StreamT& stream, const http::Request& req)
 	stream << "HTTP/" << req.httpVersion << " " << req.type << " request.\n"
 			<< "\tUrl: '" << req.url << "'\n"
 			<< "\tHeaders:\n";
-	for (const auto& fvPair: req.headers) {
+	for (const auto& fvPair : req.headers_) {
 		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
 	}
 	stream << "\tBody is " << req.body.size() << " bytes long.\n\tKeepAlive: "
@@ -1013,7 +1032,7 @@ StreamT& operator<<(StreamT& stream, const http::Response& resp)
 	stream << "HTTP/" << resp.httpVersion << " '" << resp.statusCode << "' "
 			<< resp.statusText << " response.\n"
 			<< "\tHeaders:\n";
-	for (const auto& fvPair: resp.headers) {
+	for (const auto& fvPair : resp.headers_) {
 		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
 	}
 	stream << "\tBody is " << resp.body.size() << " bytes long.\n\tKeepAlive: "

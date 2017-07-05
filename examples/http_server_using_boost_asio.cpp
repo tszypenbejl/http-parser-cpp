@@ -10,7 +10,7 @@
 using boost::asio::ip::tcp;
 using namespace http;
 
-class Session: public std::enable_shared_from_this<Session>
+class Session : public std::enable_shared_from_this<Session>
 {
 	static const size_t inputBufLen = 512;
 
@@ -43,7 +43,7 @@ private:
 				if (keepAlive) {
 					doRead();
 				}
-			} catch (const RequestParseError&) {
+			} catch (const request_parse_error&) {
 				doWrite(
 						"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n"
 						"Content-Type: text/plain\r\n"
@@ -90,7 +90,7 @@ private:
 						extraHeaders + "Content-Type: text/plain\r\n"
 						"Content-Length: 15\r\n\r\n404 Not Found\r\n");
 			}
-		} catch (const UrlParseError&) {
+		} catch (const url_parse_error&) {
 			doWrite(
 					"HTTP/" + ver + " 400 Bad Request\r\n" +
 					extraHeaders + "Content-Type: text/plain\r\n"

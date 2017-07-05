@@ -47,7 +47,7 @@ int main()
 
 	try {
 		sparser.feed(sinput.cbegin(), sinput.cend());
-	} catch (const ResponseTooBig&) {
+	} catch (const response_too_big&) {
 		exceptionThrown = true;
 	}
 
@@ -59,7 +59,7 @@ int main()
 
 	try {
 		lparser.feed(linput.cbegin(), linput.cend());
-	} catch (const ResponseTooBig&) {
+	} catch (const response_too_big&) {
 		exceptionThrown = true;
 	}
 	
