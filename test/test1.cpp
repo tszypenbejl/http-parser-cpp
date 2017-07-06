@@ -23,7 +23,7 @@ int main()
 	parser.feed(sinput.cbegin(), sinput.cend());
 	parser.feed(vinput.cbegin(), vinput.cend());
 	parser.feed(linput.cbegin(), linput.cend());
-	parser.feedEof();
+	parser.feed_eof();
 
 	assert(parser.parsedRequests.size() == 5);
 	assert(parser.parsedRequests.at(0) == parser.parsedRequests.at(1));
@@ -33,7 +33,7 @@ int main()
 
 	const Request& r = parser.parsedRequests.front();
 	assert(HTTP_GET == r.type);
-	assert(1 == r.httpVersion.major && 1 == r.httpVersion.minor);
+	assert(1 == r.http_version_.major() && 1 == r.http_version_.minor());
 	assert("/formhandler?par1=koko+jumbo&par2=kinematograf" == r.url);
 	assert(1 == r.header_count());
 
@@ -41,13 +41,13 @@ int main()
 	assert(r.has_header("HOST"));
 	assert(r.has_header("host"));
 	assert(r.has_header("hOsT"));
-	assert("example.com" == r.header("host"));
-	assert("example.com" == r.header("host", "value-if-not-found"));
+	assert("example.com" == r.get_header("host"));
+	assert("example.com" == r.get_header("host", "value-if-not-found"));
 	assert(!r.has_header("Content-Type"));
-	assert("text/plain" == r.header("Content-Type", "text/plain"));
+	assert("text/plain" == r.get_header("Content-Type", "text/plain"));
 	bool headerNotFoundErrorOccurred = false;
 	try {
-		(void) r.header("Content-Type");
+		(void) r.get_header("Content-Type");
 	} catch (const header_not_found_error&) {
 		//cerr << e.what() << endl;
 		headerNotFoundErrorOccurred = true;

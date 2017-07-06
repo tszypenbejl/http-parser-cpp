@@ -26,7 +26,7 @@ int main()
 
 	assert(1 == parser.parsedRequests.size());
 	assert("/demo" == parser.parsedRequests.front().url);
-	assert("WebSocket" == parser.parsedRequests.front().header("Upgrade"));
+	assert("WebSocket" == parser.parsedRequests.front().get_header("Upgrade"));
 
 	assert(
 			"some non-http data apparently sent with the assumption that\n"

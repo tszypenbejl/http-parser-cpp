@@ -94,16 +94,16 @@ int main(int argc, char* argv[])
 		while (!completed) {
 			boost::system::error_code ec;
 			char reply[2048];
-				size_t reply_length = boost::asio::read(socket,
-						boost::asio::buffer(reply, sizeof(reply)), ec);
-				if (!ec) {
-					parser.feed(reply, reply_length);
-				} else if (boost::asio::error::eof == ec) {
-					parser.feed(reply, reply_length);
-					parser.feedEof();
-				} else {
-					throw boost::system::system_error(ec);
-				}
+			size_t reply_length = boost::asio::read(socket,
+					boost::asio::buffer(reply, sizeof(reply)), ec);
+			if (reply_length > 0U) {
+				parser.feed(reply, reply_length);
+			}
+			if (boost::asio::error::eof == ec) {
+				parser.feed_eof();
+			} else if (ec) {
+				throw boost::system::system_error(ec);
+			}
 		}
 	} catch (const std::runtime_error& e) {
 		std::cerr << "Interrupted by exception: " << e.what() << std::endl;

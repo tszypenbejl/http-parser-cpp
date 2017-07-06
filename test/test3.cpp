@@ -15,7 +15,7 @@ int main()
 	bool parseErrorOccurred = false;
 	try {
 		parser.feed(input.cbegin(), input.cend());
-		parser.feedEof();
+		parser.feed_eof();
 	} catch (const request_parse_error& e) {
 		//cerr << e.what() << endl;
 		parseErrorOccurred = true;

@@ -13,21 +13,21 @@ http::Response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
 	std::string body;
 	bool done = false;
 
-	auto callback = [&](const http::ResponseHead &resp, const char *bodyPart,
+	auto callback = [&](const http::ResponseHead &head, const char *bodyPart,
 			std::size_t bodyPartLength, bool finished)
 	{
 		assert(!done);
 		body.append(bodyPart, bodyPartLength);
 		//std::cout << body.size() << std::endl;
 		if (finished) {
-			response.getHead() = resp;
+			response.head(head);
 			done = true;
 		}
 	};
 
 	http::BigResponseParser bigParser(callback);
 	bigParser.feed(inputBegin, inputEnd);
-	bigParser.feedEof();
+	bigParser.feed_eof();
 
 	assert(done);
 	response.body = std::move(body);
@@ -62,7 +62,7 @@ int main()
 	ResponseParser ordinaryParser([&baselineResponse](Response&& r)
 		{ baselineResponse = std::move(r); });
 	ordinaryParser.feed(input, sizeof(input) - 1);
-	ordinaryParser.feedEof();
+	ordinaryParser.feed_eof();
 	//cout << baselineResponse;
 
 	assert(getResponseFromBigParser(sinput.begin(), sinput.end()) == baselineResponse);

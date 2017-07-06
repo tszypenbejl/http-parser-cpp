@@ -34,13 +34,13 @@ private:
 		auto readCallback =
 				[this, self](boost::system::error_code ec, std::size_t length)
 		{
-			if (ec) {
-				reqParser.feedEof();
-				return;
-			}
 			try {
-				reqParser.feed(inputBuf, length);
-				if (keepAlive) {
+				if (length > 0U) {
+					reqParser.feed(inputBuf, length);
+				}
+				if (ec) {
+					reqParser.feed_eof();
+				} else if (keepAlive) {
 					doRead();
 				}
 			} catch (const request_parse_error&) {
@@ -68,7 +68,7 @@ private:
 	void onRequestReceived(Request& req)
 	{
 		keepAlive = req.keepAlive;
-		const std::string ver = req.httpVersion.toString();
+		const std::string ver = req.http_version_.to_string();
 		const std::string extraHeaders = keepAlive ? "" : "Connection: close\r\n";
 		if (req.type != HTTP_GET) {
 			doWrite(

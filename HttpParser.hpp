@@ -96,7 +96,7 @@ class callbacks
 		try {
 			return (parser.*method)(args...);
 		} catch (...) {
-			parser.callbackException = std::current_exception();
+			parser.callback_exception_ = std::current_exception();
 		}
 		return -1;
 		
@@ -174,15 +174,64 @@ struct header_name_less
 
 using headers = std::map<std::string, std::string, detail::header_name_less>;
 
-class header_assembler
+class headers_owner
 {
-	headers&    headers_;
-	std::string current_header_field_;
-	std::string current_header_value_;
-	bool        current_header_field_complete_ = false;
+protected:
+	headers headers_;
 
 public:
-	header_assembler(headers& h): headers_(h) {}
+	headers_owner()                                = default;
+	headers_owner(const headers_owner&)            = default;
+	headers_owner& operator=(const headers_owner&) = default;
+	headers_owner(headers_owner&&)                 = default;
+	headers_owner& operator=(headers_owner&&)      = default;
+
+	void add_header(const std::string& name, const std::string& value)
+	{
+		std::string& current_value = headers_[name];
+		if (current_value.empty()) {
+			current_value = value;
+		} else if (!value.empty()) {
+			current_value.reserve(1 + value.size());
+			current_value.append(",");
+			current_value.append(value);
+		}
+	}
+
+	bool has_header(const std::string& headerName) const noexcept
+			{ return headers_.count(headerName) > 0U; }
+
+	const std::string& get_header(const std::string& headerName) const
+	{
+		headers::const_iterator it = headers_.find(headerName);
+		if (headers_.cend() == it) {
+			throw header_not_found_error(
+					"Request does not have '" + headerName + "' header");
+		}
+		return it->second;
+	}
+
+	const std::string& get_header(const std::string& headerName,
+			const std::string& defaultValue) const noexcept
+	{
+		headers::const_iterator it = headers_.find(headerName);
+		return headers_.cend() == it ? defaultValue : it->second;
+	}
+
+	std::size_t header_count() const noexcept { return headers_.size(); }
+
+	const headers& all_headers() const noexcept { return headers_; }
+};
+
+class header_assembler
+{
+	headers_owner& headers_;
+	std::string    current_header_field_;
+	std::string    current_header_value_;
+	bool           current_header_field_complete_ = false;
+
+public:
+	header_assembler(headers_owner& h): headers_(h) {}
 	header_assembler(const header_assembler&)            = delete;
 	header_assembler(header_assembler&&)                 = delete;
 	header_assembler& operator=(const header_assembler&) = delete;
@@ -220,153 +269,116 @@ private:
 		if (current_header_field_.empty()) {
 			return;
 		}
-		std::string& header_value = headers_[current_header_field_];
-		if (header_value.empty()) {
-			header_value.swap(current_header_value_);
-		} else if (!current_header_value_.empty()) {
-			header_value.reserve(1 + current_header_value_.size());
-			header_value.append(",");
-			header_value.append(current_header_value_);
-		}
+		headers_.add_header(current_header_field_, current_header_value_);
 		current_header_field_.clear();
 		current_header_value_.clear();
 		current_header_field_complete_ = false;
 	}
 };
 
-class LengthLimiter
+class length_limiter
 {
 public:
-	using OnLimitExceeded =
+	using on_limit_exceeded =
 			std::function<void(std::size_t, std::size_t)>;
+
 private:
-	std::size_t currentLength = 0;
-	std::size_t maxLength = 0;
-	OnLimitExceeded onLimitExceeded;
-public:
-	LengthLimiter(OnLimitExceeded onLimitExceeded):
-			onLimitExceeded(onLimitExceeded) {}
-	inline void setMaxLength(std::size_t max) { maxLength = max; }
-	inline void checkLength(std::size_t delta)
-	{
-		currentLength += delta;
-		if (maxLength && currentLength > maxLength) {
-			onLimitExceeded(currentLength, maxLength);
-		}
-	}
-	inline void reset() { currentLength = 0; }
-};
-
-class headers_owner
-{
-protected:
-	headers headers_;
+	std::size_t       current_length_    = 0;
+	std::size_t       max_length_        = 0;
+	on_limit_exceeded on_limit_exceeded_;
 
 public:
-	headers_owner()                                = default;
-	headers_owner(const headers_owner&)            = default;
-	headers_owner& operator=(const headers_owner&) = default;
-	headers_owner(headers_owner&&)                 = default;
-	headers_owner& operator=(headers_owner&&)      = default;
+	length_limiter(on_limit_exceeded on_limit_exceeded):
+			on_limit_exceeded_(on_limit_exceeded) {}
 
-	bool has_header(const std::string& headerName) const noexcept
-			{ return headers_.count(headerName) > 0U; }
+	inline std::size_t max_length() const noexcept { return max_length_; }
 
-	const std::string& header(const std::string& headerName) const
+	inline void max_length(std::size_t max) { max_length_ = max; }
+
+	inline void check_length(std::size_t delta)
 	{
-		headers::const_iterator it = headers_.find(headerName);
-		if (headers_.cend() == it) {
-			throw header_not_found_error(
-					"Request does not have '" + headerName + "' header");
+		current_length_ += delta;
+		if (max_length_ && current_length_ > max_length_) {
+			on_limit_exceeded_(current_length_, max_length_);
 		}
-		return it->second;
 	}
 
-	const std::string& header(const std::string& headerName,
-			const std::string& defaultValue) const noexcept
-	{
-		headers::const_iterator it = headers_.find(headerName);
-		return headers_.cend() == it ? defaultValue : it->second;
-	}
-
-	std::size_t header_count() const noexcept { return headers_.size(); }
-
-	const headers& all_headers() const noexcept { return headers_; }
+	inline void reset() { current_length_ = 0; }
 };
 
 template <typename IterT>
-struct IsContiguousMemoryForwardIterator : std::is_pointer<IterT> {};
+struct is_contiguous_memory_forward_iterator : std::is_pointer<IterT> {};
 
 template <>
-struct IsContiguousMemoryForwardIterator
+struct is_contiguous_memory_forward_iterator
 		<typename std::vector<char>::iterator> : std::true_type {};
 template <>
-struct IsContiguousMemoryForwardIterator
+struct is_contiguous_memory_forward_iterator
 		<typename std::vector<char>::const_iterator> : std::true_type {};
 template <>
-struct IsContiguousMemoryForwardIterator
+struct is_contiguous_memory_forward_iterator
 		<typename std::string::iterator> : std::true_type {};
 template <>
-struct IsContiguousMemoryForwardIterator
+struct is_contiguous_memory_forward_iterator
 		<typename std::string::const_iterator> : std::true_type {};
 
 #ifdef HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 #endif
 
-class ParserBase
+class parser_base
 {
 protected:
-	http_parser p;
-	http_parser_settings& parser_settings_;
-	std::exception_ptr callbackException;
-	std::size_t totalConsumedLength = 0;
-	protocol_upgrade_handler protocolUpgradeHandler;
+	http_parser              p_;
+	http_parser_settings&    parser_settings_;
+	std::exception_ptr       callback_exception_;
+	std::size_t              total_consumed_length_    = 0;
+	protocol_upgrade_handler protocol_upgrade_handler_;
 
 public:
 	std::string protocolUpgradeData;
 
 protected:
-	ParserBase(http_parser_type parserType, http_parser_settings& parserSettings)
-		: parser_settings_(parserSettings)
+	parser_base(http_parser_type parser_type, http_parser_settings& parser_settings)
+		: parser_settings_(parser_settings)
 	{
-		http_parser_init(&p, parserType);
-		p.data = this;
+		http_parser_init(&p_, parser_type);
+		p_.data = this;
 	}
 
-	virtual void throwParseError(const std::string& errorMessage) = 0;
+	virtual void throw_parse_error(const std::string& errorMessage) = 0;
 
 public:
-	ParserBase(const ParserBase&) = delete;
-	ParserBase& operator=(const ParserBase&) = delete;
+	parser_base(const parser_base&) = delete;
+	parser_base& operator=(const parser_base&) = delete;
 
-	virtual ~ParserBase() {}
+	virtual ~parser_base() {}
 
 	void feed(const char* input, std::size_t inputLength)
 	{
-		if (p.upgrade) {
-			if (protocolUpgradeHandler) {
-				protocolUpgradeHandler(input, input + inputLength);
+		if (p_.upgrade) {
+			if (protocol_upgrade_handler_) {
+				protocol_upgrade_handler_(input, input + inputLength);
 			} else {
 				protocolUpgradeData.append(input, inputLength);
 			}
 		} else {
 			std::size_t consumedLength = http_parser_execute(
-					&p, &parser_settings_, input, inputLength);
-			totalConsumedLength += consumedLength;
-			if (callbackException) {
+					&p_, &parser_settings_, input, inputLength);
+			total_consumed_length_ += consumedLength;
+			if (callback_exception_) {
 				std::exception_ptr e = nullptr;
-				std::swap(e, callbackException);
+				std::swap(e, callback_exception_);
 				std::rethrow_exception(e);
 			}
-			if (HTTP_PARSER_ERRNO(&p) != HPE_OK || consumedLength > inputLength
-					|| (consumedLength < inputLength && !p.upgrade)) {
+			if (HTTP_PARSER_ERRNO(&p_) != HPE_OK || consumedLength > inputLength
+					|| (consumedLength < inputLength && !p_.upgrade)) {
 				std::ostringstream errMsg;
-				errMsg << "HTTP Parse error on character " << totalConsumedLength
-						<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p));
-				throwParseError(errMsg.str());
+				errMsg << "HTTP Parse error on character " << total_consumed_length_
+						<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p_));
+				throw_parse_error(errMsg.str());
 			}
-			if (p.upgrade) {
+			if (p_.upgrade) {
 				feed(input + consumedLength, inputLength - consumedLength);
 			}
 		}
@@ -375,14 +387,14 @@ public:
 	template<typename IterT>
 	typename std::enable_if<std::is_same<
 			typename std::iterator_traits<IterT>::value_type, char>::value>::type
-	feed(IterT begin, IterT end) { feedIter(begin, end); }
+	feed(IterT begin, IterT end) { feed_iter(begin, end); }
 
-	void feedEof() { (void) feed(nullptr, 0); }
+	void feed_eof() { (void) feed(nullptr, 0); }
 
 private:
 	template<typename IterT>
-	typename std::enable_if<!IsContiguousMemoryForwardIterator<IterT>::value>::type
-	feedIter(IterT begin, IterT end)
+	typename std::enable_if<!is_contiguous_memory_forward_iterator<IterT>::value>::type
+	feed_iter(IterT begin, IterT end)
 	{
 		for (IterT it = begin; it != end; ++it) {
 			char c = *it;
@@ -391,8 +403,8 @@ private:
 	}
 
 	template<typename IterT>
-	typename std::enable_if<IsContiguousMemoryForwardIterator<IterT>::value>::type
-	feedIter(IterT begin, IterT end)
+	typename std::enable_if<is_contiguous_memory_forward_iterator<IterT>::value>::type
+	feed_iter(IterT begin, IterT end)
 	{
 		const char* buf = &(*begin);
 		const std::size_t len = end - begin;
@@ -402,20 +414,36 @@ private:
 
 } /* namespace detail */
 
-struct HttpVersion
+class http_version
 {
-	unsigned short major = 0;
-	unsigned short minor = 0;
+	unsigned short major_ = 0;
+	unsigned short minor_ = 0;
+
 public:
-	std::string toString() const
+	http_version() = default;
+	http_version(const http_version&) = default;
+	http_version(http_version&&) = default;
+	http_version& operator=(const http_version&) = default;
+	http_version& operator=(http_version&&) = default;
+
+	bool operator==(const http_version& other) const noexcept
+			{ return other.major_ == major_ && other.minor_ == minor_; }
+
+	inline unsigned short major() const noexcept { return major_; }
+	inline void major(unsigned short m) noexcept { major_ = m; }
+
+	inline unsigned short minor() const noexcept { return minor_; }
+	inline void minor(unsigned short m) noexcept { minor_ = m; }
+
+	std::string to_string() const
 	{
 		std::string ret;
 		ret.reserve(3);
 		char buf[12];
-		(void) std::snprintf(buf, sizeof(buf), "%u", major);
+		(void) std::snprintf(buf, sizeof(buf), "%u", major_);
 		ret.append(buf);
 		ret.append(".");
-		(void) std::snprintf(buf, sizeof(buf), "%u", minor);
+		(void) std::snprintf(buf, sizeof(buf), "%u", minor_);
 		ret.append(buf);
 		return ret;
 	}
@@ -423,65 +451,53 @@ public:
 
 struct RequestHead : detail::headers_owner
 {
-	friend class BigRequestParser;
 	using RequestType = enum http_method;
 public:
 	RequestType type = HTTP_HEAD;
-	HttpVersion httpVersion;
+	http_version http_version_;
 	std::string url;
 	bool keepAlive = false;
 };
 
-struct Request : private RequestHead
+struct Request : RequestHead
 {
-	friend class RequestParser;
-	using RequestHead::type;
-	using RequestHead::httpVersion;
-	using RequestHead::url;
-	using RequestHead::keepAlive;
 	std::string body;
 public:
-	using RequestHead::has_header;
-	using RequestHead::header;
-	using RequestHead::header_count;
-	using RequestHead::all_headers;
-	RequestHead& getHead() noexcept { return *this; }
+	const RequestHead& head() const noexcept { return *this; }
+	void head(RequestHead h) { *static_cast<RequestHead*>(this) = std::move(h); }
 };
 
 struct ResponseHead : detail::headers_owner
 {
-	friend class BigResponseParser;
 	unsigned statusCode = 0;
 	std::string statusText;
-	HttpVersion httpVersion;
+	http_version http_version_;
 	bool keepAlive = false;
+public:
+	ResponseHead() = default;
+	ResponseHead(const ResponseHead&) = default;
+	ResponseHead(ResponseHead&&) = default;
+	ResponseHead& operator=(const ResponseHead&) = default;
+	ResponseHead& operator=(ResponseHead&&) = default;
 };
 
-struct Response : private ResponseHead
+struct Response : ResponseHead
 {
-	friend class ResponseParser;
-	using ResponseHead::statusCode;
-	using ResponseHead::statusText;
-	using ResponseHead::httpVersion;
-	using ResponseHead::keepAlive;
 	std::string body;
 public:
-	using ResponseHead::has_header;
-	using ResponseHead::header;
-	using ResponseHead::header_count;
-	using ResponseHead::all_headers;
-	ResponseHead& getHead() noexcept { return *this; }
+	const ResponseHead& head() const noexcept { return *this; }
+	void head(ResponseHead h) { *static_cast<ResponseHead*>(this) = std::move(h); }
 };
 
 using RequestConsumer = std::function<void(Request&&)>;
 using ResponseConsumer = std::function<void(Response&&)>;
 
-class RequestParser : public detail::ParserBase
+class RequestParser : public detail::parser_base
 {
 	Request currentRequest;
-	detail::header_assembler header_assembler_;
+	detail::header_assembler header_assembler_ { currentRequest };
 	RequestConsumer requestConsumer;
-	detail::LengthLimiter requestLengthLimiter
+	detail::length_limiter requestLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
@@ -495,33 +511,31 @@ public:
 
 public:
 	RequestParser()
-		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
-			header_assembler_(currentRequest.headers_) {}
+		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()) {}
 
 	RequestParser(RequestConsumer requestConsumer)
-		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
-			header_assembler_(currentRequest.headers_), requestConsumer(requestConsumer) {}
+		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
+			requestConsumer(requestConsumer) {}
 
 	RequestParser(protocol_upgrade_handler protocolUpgradeHandler)
-		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
-			header_assembler_(currentRequest.headers_)
+		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get())
 	{
-		this->protocolUpgradeHandler = protocolUpgradeHandler;
+		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	RequestParser(RequestConsumer requestConsumer,
 			protocol_upgrade_handler protocolUpgradeHandler)
-		: ParserBase(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
-			header_assembler_(currentRequest.headers_), requestConsumer(requestConsumer)
+		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
+			requestConsumer(requestConsumer)
 	{
-		this->protocolUpgradeHandler = protocolUpgradeHandler;
+		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	void setMaxRequestLength(std::size_t maxLength) // 0 means unlimited
-			{ requestLengthLimiter.setMaxLength(maxLength); }
+			{ requestLengthLimiter.max_length(maxLength); }
 
 private:
-	void throwParseError(const std::string& errorMessage) override
+	void throw_parse_error(const std::string& errorMessage) override
 			{ throw request_parse_error(errorMessage); }
 
 private:
@@ -537,7 +551,7 @@ private:
 
 	int on_url(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.checkLength(length);
+		requestLengthLimiter.check_length(length);
 		currentRequest.url.append(data, length);
 		return 0;
 	}
@@ -550,14 +564,14 @@ private:
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.checkLength(length);
+		requestLengthLimiter.check_length(length);
 		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.checkLength(length);
+		requestLengthLimiter.check_length(length);
 		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
@@ -570,17 +584,17 @@ private:
 
 	int onBody(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.checkLength(length);
+		requestLengthLimiter.check_length(length);
 		currentRequest.body.append(data, length);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		currentRequest.type = static_cast<RequestHead::RequestType>(p.method);
-		currentRequest.httpVersion.major = p.http_major;
-		currentRequest.httpVersion.minor = p.http_minor;
-		currentRequest.keepAlive = (http_should_keep_alive(&p) != 0);
+		currentRequest.type = static_cast<RequestHead::RequestType>(p_.method);
+		currentRequest.http_version_.major(p_.http_major);
+		currentRequest.http_version_.minor(p_.http_minor);
+		currentRequest.keepAlive = (http_should_keep_alive(&p_) != 0);
 		if (requestConsumer) {
 			requestConsumer(std::move(currentRequest));
 		} else {
@@ -602,12 +616,12 @@ private:
 	}
 };
 
-class ResponseParser : public detail::ParserBase
+class ResponseParser : public detail::parser_base
 {
 	Response currentResponse;
-	detail::header_assembler header_assembler_;
+	detail::header_assembler header_assembler_ { currentResponse };
 	ResponseConsumer responseConsumer;
-	detail::LengthLimiter responseLengthLimiter
+	detail::length_limiter responseLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
@@ -621,35 +635,31 @@ public:
 
 public:
 	ResponseParser()
-		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
-			header_assembler_(currentResponse.headers_) {}
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()) {}
 
 	ResponseParser(ResponseConsumer responseConsumer)
-		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
-			header_assembler_(currentResponse.headers_),
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
 			responseConsumer(responseConsumer) {}
 
 	ResponseParser(protocol_upgrade_handler protocolUpgradeHandler)
-		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
-			header_assembler_(currentResponse.headers_)
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get())
 	{
-		this->protocolUpgradeHandler = protocolUpgradeHandler;
+		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	ResponseParser(ResponseConsumer responseConsumer,
 			protocol_upgrade_handler protocolUpgradeHandler)
-		: ParserBase(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
-			header_assembler_(currentResponse.headers_),
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
 			responseConsumer(responseConsumer)
 	{
-		this->protocolUpgradeHandler = protocolUpgradeHandler;
+		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	void setMaxResponseLength(std::size_t maxLength) // 0 means unlimited
-			{ responseLengthLimiter.setMaxLength(maxLength); }
+			{ responseLengthLimiter.max_length(maxLength); }
 
 private:
-	void throwParseError(const std::string& errorMessage) override
+	void throw_parse_error(const std::string& errorMessage) override
 			{ throw response_parse_error(errorMessage); }
 
 private:
@@ -679,14 +689,14 @@ private:
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		responseLengthLimiter.checkLength(length);
+		responseLengthLimiter.check_length(length);
 		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		responseLengthLimiter.checkLength(length);
+		responseLengthLimiter.check_length(length);
 		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
@@ -699,17 +709,17 @@ private:
 
 	int onBody(const char* data, std::size_t length)
 	{
-		responseLengthLimiter.checkLength(length);
+		responseLengthLimiter.check_length(length);
 		currentResponse.body.append(data, length);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		currentResponse.statusCode = p.status_code;
-		currentResponse.httpVersion.major = p.http_major;
-		currentResponse.httpVersion.minor = p.http_minor;
-		currentResponse.keepAlive = (http_should_keep_alive(&p) != 0);
+		currentResponse.statusCode = p_.status_code;
+		currentResponse.http_version_.major(p_.http_major);
+		currentResponse.http_version_.minor(p_.http_minor);
+		currentResponse.keepAlive = (http_should_keep_alive(&p_) != 0);
 		if (responseConsumer) {
 			responseConsumer(std::move(currentResponse));
 		} else {
@@ -734,12 +744,12 @@ private:
 using BigRequestCallback = std::function<void(const RequestHead &requestHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
-class BigRequestParser : public detail::ParserBase
+class BigRequestParser : public detail::parser_base
 {
 	RequestHead currentRequest;
-	detail::header_assembler header_assembler_ { currentRequest.headers_ };
+	detail::header_assembler header_assembler_ { currentRequest };
 	BigRequestCallback requestCallback;
-	detail::LengthLimiter headersLengthLimiter
+	detail::length_limiter headersLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
@@ -751,17 +761,17 @@ class BigRequestParser : public detail::ParserBase
 public:
 	BigRequestParser(BigRequestCallback requestCallback,
 			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
-		: ParserBase(HTTP_REQUEST, detail::parser_settings<BigRequestParser>::get()),
+		: parser_base(HTTP_REQUEST, detail::parser_settings<BigRequestParser>::get()),
 			requestCallback(requestCallback)
 	{
-		this->protocolUpgradeHandler = protocolUpgradeHandler;
+		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	void setMaxHeadersLength(std::size_t maxLength) // 0 means unlimited
-			{ headersLengthLimiter.setMaxLength(maxLength); }
+			{ headersLengthLimiter.max_length(maxLength); }
 
 private:
-	void throwParseError(const std::string& errorMessage) override
+	void throw_parse_error(const std::string& errorMessage) override
 			{ throw request_parse_error(errorMessage); }
 
 private:
@@ -777,7 +787,7 @@ private:
 
 	int on_url(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.checkLength(length);
+		headersLengthLimiter.check_length(length);
 		currentRequest.url.append(data, length);
 		return 0;
 	}
@@ -790,14 +800,14 @@ private:
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.checkLength(length);
+		headersLengthLimiter.check_length(length);
 		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.checkLength(length);
+		headersLengthLimiter.check_length(length);
 		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
@@ -805,10 +815,10 @@ private:
 	int on_headers_complete()
 	{
 		header_assembler_.on_headers_complete();
-		currentRequest.type = static_cast<RequestHead::RequestType>(p.method);
-		currentRequest.httpVersion.major = p.http_major;
-		currentRequest.httpVersion.minor = p.http_minor;
-		currentRequest.keepAlive = (http_should_keep_alive(&p) != 0);
+		currentRequest.type = static_cast<RequestHead::RequestType>(p_.method);
+		currentRequest.http_version_.major(p_.http_major);
+		currentRequest.http_version_.minor(p_.http_minor);
+		currentRequest.keepAlive = (http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
 
@@ -840,12 +850,12 @@ private:
 using BigResponseCallback = std::function<void(const ResponseHead &responseHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
-class BigResponseParser : public detail::ParserBase
+class BigResponseParser : public detail::parser_base
 {
 	ResponseHead currentResponse;
-	detail::header_assembler header_assembler_ { currentResponse.headers_ };
+	detail::header_assembler header_assembler_ { currentResponse };
 	BigResponseCallback responseCallback;
-	detail::LengthLimiter headersLengthLimiter
+	detail::length_limiter headersLengthLimiter
 	{
 		[](std::size_t, std::size_t limit)
 		{
@@ -857,18 +867,18 @@ class BigResponseParser : public detail::ParserBase
 public:
 	BigResponseParser(BigResponseCallback responseCallback,
 			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
-		: ParserBase(HTTP_RESPONSE,
+		: parser_base(HTTP_RESPONSE,
 					detail::parser_settings<BigResponseParser>::get()),
 			responseCallback(responseCallback)
 	{
-		this->protocolUpgradeHandler = protocolUpgradeHandler;
+		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	void setMaxHeadersLength(std::size_t maxLength) // 0 means unlimited
-			{ headersLengthLimiter.setMaxLength(maxLength); }
+			{ headersLengthLimiter.max_length(maxLength); }
 
 private:
-	void throwParseError(const std::string& errorMessage) override
+	void throw_parse_error(const std::string& errorMessage) override
 			{ throw response_parse_error(errorMessage); }
 
 private:
@@ -892,21 +902,21 @@ private:
 
 	int on_status(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.checkLength(length);
+		headersLengthLimiter.check_length(length);
 		currentResponse.statusText.append(data, length);
 		return 0;
 	}
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.checkLength(length);
+		headersLengthLimiter.check_length(length);
 		header_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.checkLength(length);
+		headersLengthLimiter.check_length(length);
 		header_assembler_.on_header_value(data, length);
 		return 0;
 	}
@@ -914,10 +924,10 @@ private:
 	int on_headers_complete()
 	{
 		header_assembler_.on_headers_complete();
-		currentResponse.statusCode = p.status_code;
-		currentResponse.httpVersion.major = p.http_major;
-		currentResponse.httpVersion.minor = p.http_minor;
-		currentResponse.keepAlive = (http_should_keep_alive(&p) != 0);
+		currentResponse.statusCode = p_.status_code;
+		currentResponse.http_version_.major(p_.http_major);
+		currentResponse.http_version_.minor(p_.http_minor);
+		currentResponse.keepAlive = (http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
 
@@ -999,9 +1009,9 @@ using detail::headers;
 } /* namespace http */
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::HttpVersion& ver)
+StreamT& operator<<(StreamT& stream, const http::http_version& ver)
 {
-	stream << ver.toString();
+	stream << ver.to_string();
 	return stream;
 }
 
@@ -1015,7 +1025,7 @@ StreamT& operator<<(StreamT& stream, http::RequestHead::RequestType reqType)
 template<typename StreamT>
 StreamT& operator<<(StreamT& stream, const http::Request& req)
 {
-	stream << "HTTP/" << req.httpVersion << " " << req.type << " request.\n"
+	stream << "HTTP/" << req.http_version_ << " " << req.type << " request.\n"
 			<< "\tUrl: '" << req.url << "'\n"
 			<< "\tHeaders:\n";
 	for (const auto& fvPair : req.headers_) {
@@ -1029,7 +1039,7 @@ StreamT& operator<<(StreamT& stream, const http::Request& req)
 template<typename StreamT>
 StreamT& operator<<(StreamT& stream, const http::Response& resp)
 {
-	stream << "HTTP/" << resp.httpVersion << " '" << resp.statusCode << "' "
+	stream << "HTTP/" << resp.http_version_ << " '" << resp.statusCode << "' "
 			<< resp.statusText << " response.\n"
 			<< "\tHeaders:\n";
 	for (const auto& fvPair : resp.headers_) {
