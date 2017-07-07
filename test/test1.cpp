@@ -31,10 +31,10 @@ int main()
 	assert(parser.parsedRequests.at(0) == parser.parsedRequests.at(3));
 	assert(parser.parsedRequests.at(0) == parser.parsedRequests.at(4));
 
-	const Request& r = parser.parsedRequests.front();
-	assert(HTTP_GET == r.type);
-	assert(1 == r.http_version_.major() && 1 == r.http_version_.minor());
-	assert("/formhandler?par1=koko+jumbo&par2=kinematograf" == r.url);
+	const request& r = parser.parsedRequests.front();
+	assert(HTTP_GET == r.method());
+	assert(1 == r.http_version().major() && 1 == r.http_version().minor());
+	assert("/formhandler?par1=koko+jumbo&par2=kinematograf" == r.url());
 	assert(1 == r.header_count());
 
 	assert(r.has_header("Host"));

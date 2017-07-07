@@ -10,22 +10,22 @@ int main()
 
 	Url url;
 
-	url = parseUrl("http://hostname/");
+	url = parse_url("http://hostname/");
 	assert("http" == url.schema);
 	assert("hostname" == url.host);
 	assert("/" == url.path);
 	//cout << url << endl;
 
-	url = parseUrl("hostname:8080", true);
+	url = parse_url("hostname:8080", true);
 	assert("hostname" == url.host);
 	assert(8080U == url.port);
 	//cout << url << endl;
 
-	url = parseUrl("/test");
+	url = parse_url("/test");
 	assert("/test" == url.path);
 	//cout << url << endl;
 
-	url = parseUrl("/test?par1=koko+jumbo&par2=kinematograf");
+	url = parse_url("/test?par1=koko+jumbo&par2=kinematograf");
 	assert("/test" == url.path);
 	assert("par1=koko+jumbo&par2=kinematograf" == url.query);
 	//cout << url << endl;

@@ -1,11 +1,11 @@
 #pragma once
 #include "../HttpParser.hpp"
 
-bool operator==(const http::Request& lhs, const http::Request& rhs)
+bool operator==(const http::request& lhs, const http::request& rhs)
 {
-	return lhs.type == rhs.type && lhs.http_version_ == rhs.http_version_
-			&& lhs.url == rhs.url && lhs.all_headers() == rhs.all_headers()
-			&& lhs.body == rhs.body;
+	return lhs.method() == rhs.method() && lhs.http_version() == rhs.http_version()
+			&& lhs.url() == rhs.url() && lhs.all_headers() == rhs.all_headers()
+			&& lhs.body() == rhs.body();
 }
 
 bool operator==(const http::Response& lhs, const http::Response& rhs)

@@ -7,13 +7,13 @@
 #include "../HttpParser.hpp"
 
 template<typename IterT>
-http::Request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
+http::request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
 {
-	http::Request request;
+	http::request request;
 	std::string body;
 	bool done = false;
 
-	auto callback = [&](const http::RequestHead &head, const char *bodyPart,
+	auto callback = [&](const http::request_head &head, const char *bodyPart,
 			std::size_t bodyPartLength, bool finished)
 	{
 		assert(!done);
@@ -30,7 +30,7 @@ http::Request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
 	bigParser.feed_eof();
 
 	assert(done);
-	request.body = std::move(body);
+	request.body(std::move(body));
 	return request;
 }
 
@@ -68,8 +68,8 @@ int main()
 	std::string sinput = input;
 	std::list<char> linput(sinput.begin(), sinput.end());
 
-	Request baselineRequest;
-	RequestParser ordinaryParser([&baselineRequest](Request&& r)
+	request baselineRequest;
+	RequestParser ordinaryParser([&baselineRequest](request&& r)
 		{ baselineRequest = std::move(r); });
 	ordinaryParser.feed(input, sizeof(input) - 1);
 	ordinaryParser.feed_eof();
@@ -80,7 +80,7 @@ int main()
 	bool exceptionThrown = false;
 	try {
 		auto callback =
-				[](const RequestHead&, const char *, std::size_t bodyPartLength, bool) {};
+				[](const request_head&, const char *, std::size_t bodyPartLength, bool) {};
 		BigRequestParser bigParser(callback);
 		bigParser.setMaxHeadersLength(10);
 		bigParser.feed(sinput.begin(), sinput.end());

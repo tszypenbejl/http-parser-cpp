@@ -23,7 +23,7 @@ private:
 public:
 	Session(tcp::socket socket)
 		: socket(std::move(socket)),
-			reqParser([this](Request&& r) { onRequestReceived(r); }) {}
+			reqParser([this](request&& r) { onRequestReceived(r); }) {}
 
 	void start() { doRead(); }
 
@@ -65,12 +65,12 @@ private:
 				writeCallback);
 	}
 
-	void onRequestReceived(Request& req)
+	void onRequestReceived(request& req)
 	{
-		keepAlive = req.keepAlive;
-		const std::string ver = req.http_version_.to_string();
+		keepAlive = req.keep_alive();
+		const std::string ver = req.http_version().to_string();
 		const std::string extraHeaders = keepAlive ? "" : "Connection: close\r\n";
-		if (req.type != HTTP_GET) {
+		if (req.method() != HTTP_GET) {
 			doWrite(
 					"HTTP/" + ver + " 405 Method Not Allowed\r\nAllow: GET\r\n" +
 					extraHeaders + "Content-Type: text/plain\r\n"
@@ -78,7 +78,7 @@ private:
 			return;
 		}
 		try {
-			Url url = parseUrl(req.url);
+			Url url = parse_url(req.url());
 			if ("/" == url.path) {
 				doWrite(
 						"HTTP/" + ver + " 200 OK\r\n" +

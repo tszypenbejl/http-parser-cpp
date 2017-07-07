@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
 		Url url;
 		bool urlParsedOk = false;
 		try {
-			url = parseUrl(argv[1]);
+			url = parse_url(argv[1]);
 			urlParsedOk = true;
 		} catch (const url_parse_error&) {
 		}

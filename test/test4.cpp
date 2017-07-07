@@ -30,12 +30,12 @@ int main()
 	//cout << parser.parsedRequests.front() << endl;
 	//cout << parser.parsedRequests.front().body << endl;
 
-	const Request r = std::move(parser.parsedRequests.front());
+	const request r = std::move(parser.parsedRequests.front());
 	parser.parsedRequests.pop_front();
 
-	assert(HTTP_POST == r.type);
-	assert(1 == r.http_version_.major() && 1 == r.http_version_.minor());
-	assert("/handleform" == r.url);
+	assert(HTTP_POST == r.method());
+	assert(1 == r.http_version().major() && 1 == r.http_version().minor());
+	assert("/handleform" == r.url());
 	assert(5 == r.header_count());
 	assert(r.has_header("Host"));
 	assert(r.has_header("Content-Type"));
@@ -47,7 +47,7 @@ int main()
 	assert("chunked" == r.get_header("Transfer-Encoding"));
 	assert("this example" == r.get_header("LateHeader1"));
 	assert("consists of just two chunks" == r.get_header("LateHeader2"));
-	assert("par1=koko+jumbo&par2=kinematograf" == r.body);
+	assert("par1=koko+jumbo&par2=kinematograf" == r.body());
 
 	cout << "If you can see this message, the test passed OK" << endl;
 	return 0;

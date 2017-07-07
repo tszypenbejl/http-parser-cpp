@@ -19,10 +19,13 @@
 #include <strings.h>
 #endif
 
+
 namespace http {
+
 
 using protocol_upgrade_handler =
 		std::function<void(const char* begin, const char* end)>;
+
 
 class parse_error : public std::runtime_error
 {
@@ -30,11 +33,13 @@ public:
 	using runtime_error::runtime_error;
 };
 
+
 class too_big_error : public std::runtime_error
 {
 public:
 	using runtime_error::runtime_error;
 };
+
 
 class request_parse_error : public parse_error
 {
@@ -42,11 +47,13 @@ public:
 	using parse_error::parse_error;
 };
 
+
 class response_parse_error : public parse_error
 {
 public:
 	using parse_error::parse_error;
 };
+
 
 class request_too_big : public too_big_error
 {
@@ -54,11 +61,13 @@ public:
 	using too_big_error::too_big_error;
 };
 
+
 class request_headers_too_big : public too_big_error
 {
 public:
 	using too_big_error::too_big_error;
 };
+
 
 class response_too_big : public too_big_error
 {
@@ -66,11 +75,13 @@ public:
 	using too_big_error::too_big_error;
 };
 
+
 class response_headers_too_big : public too_big_error
 {
 public:
 	using too_big_error::too_big_error;
 };
+
 
 class url_parse_error : public parse_error
 {
@@ -78,13 +89,16 @@ public:
 	using parse_error::parse_error;
 };
 
+
 class header_not_found_error : public std::runtime_error
 {
 public:
 	using runtime_error::runtime_error;
 };
 
+
 namespace detail {
+
 
 template<typename Parser>
 class callbacks
@@ -124,8 +138,8 @@ public:
 	static int on_message_complete(http_parser* p) noexcept
 			{ return call(p, &Parser::on_message_complete); }
 
-	static int onBody(http_parser* p, const char* data, size_t length) noexcept
-			{ return call(p, &Parser::onBody, data, length); }
+	static int on_body(http_parser* p, const char* data, size_t length) noexcept
+			{ return call(p, &Parser::on_body, data, length); }
 
 	static int on_chunk_header(http_parser* p) noexcept
 			{ return call(p, &Parser::on_chunk_header); }
@@ -133,6 +147,7 @@ public:
 	static int on_chunk_complete(http_parser* p) noexcept
 			{ return call(p, &Parser::on_chunk_complete); }
 };
+
 
 template<typename Parser>
 class parser_settings
@@ -159,12 +174,13 @@ private:
 		s_.on_header_field     = &callbacks<Parser>::on_header_field;
 		s_.on_header_value     = &callbacks<Parser>::on_header_value;
 		s_.on_headers_complete = &callbacks<Parser>::on_headers_complete;
-		s_.on_body             = &callbacks<Parser>::onBody;
+		s_.on_body             = &callbacks<Parser>::on_body;
 		s_.on_message_complete = &callbacks<Parser>::on_message_complete;
 		s_.on_chunk_header     = &callbacks<Parser>::on_chunk_header;
 		s_.on_chunk_complete   = &callbacks<Parser>::on_chunk_complete;
 	}
 };
+
 
 struct header_name_less
 {
@@ -172,7 +188,9 @@ struct header_name_less
 			{ return strcasecmp(s1.c_str(), s2.c_str()) < 0; }
 };
 
+
 using headers = std::map<std::string, std::string, detail::header_name_less>;
+
 
 class headers_owner
 {
@@ -223,7 +241,8 @@ public:
 	const headers& all_headers() const noexcept { return headers_; }
 };
 
-class header_assembler
+
+class headers_assembler
 {
 	headers_owner& headers_;
 	std::string    current_header_field_;
@@ -231,11 +250,11 @@ class header_assembler
 	bool           current_header_field_complete_ = false;
 
 public:
-	header_assembler(headers_owner& h): headers_(h) {}
-	header_assembler(const header_assembler&)            = delete;
-	header_assembler(header_assembler&&)                 = delete;
-	header_assembler& operator=(const header_assembler&) = delete;
-	header_assembler& operator=(header_assembler&&)      = delete;
+	headers_assembler(headers_owner& h): headers_(h) {}
+	headers_assembler(const headers_assembler&)            = delete;
+	headers_assembler(headers_assembler&&)                 = delete;
+	headers_assembler& operator=(const headers_assembler&) = delete;
+	headers_assembler& operator=(headers_assembler&&)      = delete;
 
 	void reset()
 	{
@@ -276,6 +295,7 @@ private:
 	}
 };
 
+
 class length_limiter
 {
 public:
@@ -306,6 +326,7 @@ public:
 	inline void reset() { current_length_ = 0; }
 };
 
+
 template <typename IterT>
 struct is_contiguous_memory_forward_iterator : std::is_pointer<IterT> {};
 
@@ -326,6 +347,7 @@ struct is_contiguous_memory_forward_iterator
 HTTP_PARSER_CPP_IS_CONTIGUOUS_MEMORY_FORWARD_ITERATOR_EXTRA_SPECIALIZATIONS
 #endif
 
+
 class parser_base
 {
 protected:
@@ -334,9 +356,7 @@ protected:
 	std::exception_ptr       callback_exception_;
 	std::size_t              total_consumed_length_    = 0;
 	protocol_upgrade_handler protocol_upgrade_handler_;
-
-public:
-	std::string protocolUpgradeData;
+	std::string              protocol_upgrade_data_;
 
 protected:
 	parser_base(http_parser_type parser_type, http_parser_settings& parser_settings)
@@ -352,34 +372,39 @@ public:
 	parser_base(const parser_base&) = delete;
 	parser_base& operator=(const parser_base&) = delete;
 
+	inline const std::string& protocol_upgrade_data() const noexcept
+			{ return protocol_upgrade_data_; }
+	inline std::string pop_protocol_upgrade_data()
+			{ return std::move(protocol_upgrade_data_); }
+
 	virtual ~parser_base() {}
 
-	void feed(const char* input, std::size_t inputLength)
+	void feed(const char* input, std::size_t input_length)
 	{
 		if (p_.upgrade) {
 			if (protocol_upgrade_handler_) {
-				protocol_upgrade_handler_(input, input + inputLength);
+				protocol_upgrade_handler_(input, input + input_length);
 			} else {
-				protocolUpgradeData.append(input, inputLength);
+				protocol_upgrade_data_.append(input, input_length);
 			}
 		} else {
-			std::size_t consumedLength = http_parser_execute(
-					&p_, &parser_settings_, input, inputLength);
-			total_consumed_length_ += consumedLength;
+			std::size_t consumed_length = http_parser_execute(
+					&p_, &parser_settings_, input, input_length);
+			total_consumed_length_ += consumed_length;
 			if (callback_exception_) {
 				std::exception_ptr e = nullptr;
 				std::swap(e, callback_exception_);
 				std::rethrow_exception(e);
 			}
-			if (HTTP_PARSER_ERRNO(&p_) != HPE_OK || consumedLength > inputLength
-					|| (consumedLength < inputLength && !p_.upgrade)) {
+			if (HTTP_PARSER_ERRNO(&p_) != HPE_OK || consumed_length > input_length
+					|| (consumed_length < input_length && !p_.upgrade)) {
 				std::ostringstream errMsg;
 				errMsg << "HTTP Parse error on character " << total_consumed_length_
 						<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p_));
 				throw_parse_error(errMsg.str());
 			}
 			if (p_.upgrade) {
-				feed(input + consumedLength, inputLength - consumedLength);
+				feed(input + consumed_length, input_length - consumed_length);
 			}
 		}
 	}
@@ -412,21 +437,24 @@ private:
 	}
 };
 
+
 } /* namespace detail */
 
-class http_version
+
+class http_version_t
 {
 	unsigned short major_ = 0;
 	unsigned short minor_ = 0;
 
 public:
-	http_version() = default;
-	http_version(const http_version&) = default;
-	http_version(http_version&&) = default;
-	http_version& operator=(const http_version&) = default;
-	http_version& operator=(http_version&&) = default;
+	http_version_t(unsigned short major, unsigned short minor) : major_(major), minor_(minor) {}
+	http_version_t() = default;
+	http_version_t(const http_version_t&)            = default;
+	http_version_t(http_version_t&&)                 = default;
+	http_version_t& operator=(const http_version_t&) = default;
+	http_version_t& operator=(http_version_t&&)      = default;
 
-	bool operator==(const http_version& other) const noexcept
+	bool operator==(const http_version_t& other) const noexcept
 			{ return other.major_ == major_ && other.minor_ == minor_; }
 
 	inline unsigned short major() const noexcept { return major_; }
@@ -449,36 +477,72 @@ public:
 	}
 };
 
-struct RequestHead : detail::headers_owner
+
+class request_head : public detail::headers_owner
 {
-	using RequestType = enum http_method;
 public:
-	RequestType type = HTTP_HEAD;
-	http_version http_version_;
-	std::string url;
-	bool keepAlive = false;
+	using method_t = enum http_method;
+
+private:
+	method_t       method_       = HTTP_HEAD;
+	http_version_t http_version_;
+	bool           keep_alive_   = false;
+	std::string    url_;
+
+public:
+	request_head()                               = default;
+	request_head(const request_head&)            = default;
+	request_head(request_head&&)                 = default;
+	request_head& operator=(const request_head&) = default;
+	request_head& operator=(request_head&&)      = default;
+
+	inline method_t           method()       const noexcept { return method_; }
+	inline http_version_t     http_version() const noexcept { return http_version_; }
+	inline bool               keep_alive()   const noexcept { return keep_alive_; }
+	inline const std::string& url()          const noexcept { return url_; }
+
+	inline void method(method_t m)             noexcept { method_ = m; }
+	inline void http_versIon(http_version_t v) noexcept { http_version_ = v; }
+	inline void keep_alive(bool ka)            noexcept { keep_alive_ = ka; }
+	inline void url(std::string u)                      { url_ = std::move(u); }
+
+	inline void append_url(const char *d, std::size_t len) { url_.append(d, len); }
 };
 
-struct Request : RequestHead
+
+class request : public request_head
 {
-	std::string body;
+	std::string body_;
+
 public:
-	const RequestHead& head() const noexcept { return *this; }
-	void head(RequestHead h) { *static_cast<RequestHead*>(this) = std::move(h); }
+	request()                          = default;
+	request(const request&)            = default;
+	request(request&&)                 = default;
+	request& operator=(const request&) = default;
+	request& operator=(request&&)      = default;
+
+	inline const request_head& head() const noexcept { return *this; }
+	inline const std::string&  body() const noexcept { return body_; }
+
+	inline void head(request_head h) { *static_cast<request_head*>(this) = std::move(h); }
+	inline void body(std::string b)  { body_ = std::move(b); }
+
+	inline void append_body(const char* d, std::size_t len) { body_.append(d, len); }
 };
+
 
 struct ResponseHead : detail::headers_owner
 {
 	unsigned statusCode = 0;
 	std::string statusText;
-	http_version http_version_;
+	http_version_t http_version_;
 	bool keepAlive = false;
 public:
-	ResponseHead() = default;
-	ResponseHead(const ResponseHead&) = default;
-	ResponseHead(ResponseHead&&) = default;
+	ResponseHead()                               = default;
+	ResponseHead(const ResponseHead&)            = default;
+	ResponseHead(ResponseHead&&)                 = default;
 	ResponseHead& operator=(const ResponseHead&) = default;
-	ResponseHead& operator=(ResponseHead&&) = default;
+	ResponseHead& operator=(ResponseHead&&)      = default;
 };
 
 struct Response : ResponseHead
@@ -489,13 +553,13 @@ public:
 	void head(ResponseHead h) { *static_cast<ResponseHead*>(this) = std::move(h); }
 };
 
-using RequestConsumer = std::function<void(Request&&)>;
+using RequestConsumer = std::function<void(request&&)>;
 using ResponseConsumer = std::function<void(Response&&)>;
 
 class RequestParser : public detail::parser_base
 {
-	Request currentRequest;
-	detail::header_assembler header_assembler_ { currentRequest };
+	request currentRequest;
+	detail::headers_assembler header_assembler_ { currentRequest };
 	RequestConsumer requestConsumer;
 	detail::length_limiter requestLengthLimiter
 	{
@@ -507,7 +571,7 @@ class RequestParser : public detail::parser_base
 	};
 
 public:
-	std::deque<Request> parsedRequests;
+	std::deque<request> parsedRequests;
 
 public:
 	RequestParser()
@@ -543,7 +607,7 @@ private:
 
 	int on_message_begin()
 	{
-		currentRequest = Request();
+		currentRequest = request();
 		header_assembler_.reset();
 		requestLengthLimiter.reset();
 		return 0;
@@ -552,7 +616,7 @@ private:
 	int on_url(const char* data, std::size_t length)
 	{
 		requestLengthLimiter.check_length(length);
-		currentRequest.url.append(data, length);
+		currentRequest.append_url(data, length);
 		return 0;
 	}
 
@@ -582,19 +646,18 @@ private:
 		return 0;
 	}
 
-	int onBody(const char* data, std::size_t length)
+	int on_body(const char* data, std::size_t length)
 	{
 		requestLengthLimiter.check_length(length);
-		currentRequest.body.append(data, length);
+		currentRequest.append_body(data, length);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		currentRequest.type = static_cast<RequestHead::RequestType>(p_.method);
-		currentRequest.http_version_.major(p_.http_major);
-		currentRequest.http_version_.minor(p_.http_minor);
-		currentRequest.keepAlive = (http_should_keep_alive(&p_) != 0);
+		currentRequest.method(static_cast<request_head::method_t>(p_.method));
+		currentRequest.http_versIon(http_version_t(p_.http_major, p_.http_minor));
+		currentRequest.keep_alive(http_should_keep_alive(&p_) != 0);
 		if (requestConsumer) {
 			requestConsumer(std::move(currentRequest));
 		} else {
@@ -619,7 +682,7 @@ private:
 class ResponseParser : public detail::parser_base
 {
 	Response currentResponse;
-	detail::header_assembler header_assembler_ { currentResponse };
+	detail::headers_assembler header_assembler_ { currentResponse };
 	ResponseConsumer responseConsumer;
 	detail::length_limiter responseLengthLimiter
 	{
@@ -707,7 +770,7 @@ private:
 		return 0;
 	}
 
-	int onBody(const char* data, std::size_t length)
+	int on_body(const char* data, std::size_t length)
 	{
 		responseLengthLimiter.check_length(length);
 		currentResponse.body.append(data, length);
@@ -741,13 +804,13 @@ private:
 	}
 };
 
-using BigRequestCallback = std::function<void(const RequestHead &requestHead,
+using BigRequestCallback = std::function<void(const request_head &requestHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
 class BigRequestParser : public detail::parser_base
 {
-	RequestHead currentRequest;
-	detail::header_assembler header_assembler_ { currentRequest };
+	request_head currentRequest;
+	detail::headers_assembler header_assembler_ { currentRequest };
 	BigRequestCallback requestCallback;
 	detail::length_limiter headersLengthLimiter
 	{
@@ -779,7 +842,7 @@ private:
 
 	int on_message_begin()
 	{
-		currentRequest = RequestHead();
+		currentRequest = request_head();
 		header_assembler_.reset();
 		headersLengthLimiter.reset();
 		return 0;
@@ -788,7 +851,7 @@ private:
 	int on_url(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.check_length(length);
-		currentRequest.url.append(data, length);
+		currentRequest.append_url(data, length);
 		return 0;
 	}
 
@@ -815,14 +878,13 @@ private:
 	int on_headers_complete()
 	{
 		header_assembler_.on_headers_complete();
-		currentRequest.type = static_cast<RequestHead::RequestType>(p_.method);
-		currentRequest.http_version_.major(p_.http_major);
-		currentRequest.http_version_.minor(p_.http_minor);
-		currentRequest.keepAlive = (http_should_keep_alive(&p_) != 0);
+		currentRequest.method(static_cast<request_head::method_t>(p_.method));
+		currentRequest.http_versIon(http_version_t(p_.http_major, p_.http_minor));
+		currentRequest.keep_alive(http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
 
-	int onBody(const char* data, std::size_t length)
+	int on_body(const char* data, std::size_t length)
 	{
 		requestCallback(currentRequest, data, length, false);
 		return 0;
@@ -853,7 +915,7 @@ using BigResponseCallback = std::function<void(const ResponseHead &responseHead,
 class BigResponseParser : public detail::parser_base
 {
 	ResponseHead currentResponse;
-	detail::header_assembler header_assembler_ { currentResponse };
+	detail::headers_assembler header_assembler_ { currentResponse };
 	BigResponseCallback responseCallback;
 	detail::length_limiter headersLengthLimiter
 	{
@@ -931,7 +993,7 @@ private:
 		return 0;
 	}
 
-	int onBody(const char* data, std::size_t length)
+	int on_body(const char* data, std::size_t length)
 	{
 		responseCallback(currentResponse, data, length, false);
 		return 0;
@@ -956,6 +1018,7 @@ private:
 	}
 };
 
+
 struct Url
 {
 	std::string schema;
@@ -964,23 +1027,24 @@ struct Url
 	std::string query;
 	std::string fragment;
 	std::string userinfo;
-	unsigned    port = 0;
+	unsigned    port     = 0;
 };
 
-Url parseUrl(const std::string& input, bool isConnect = false)
+
+Url parse_url(const std::string& input, bool is_connect = false)
 {
 	http_parser_url u;
 	http_parser_url_init(&u);
 	int err = http_parser_parse_url(
-			input.c_str(), input.size(), int(isConnect), &u);
+			input.c_str(), input.size(), int(is_connect), &u);
 	if (err) {
 		throw url_parse_error("Failed to parse this url: '" + input + "'");
 	}
 
-	Url parsedUrl;
+	Url parsed_url;
 
-	using FieldDef = std::pair<http_parser_url_fields, std::string Url::*>;
-	static const FieldDef stringFields[] = {
+	using field_t = std::pair<http_parser_url_fields, std::string Url::*>;
+	static const field_t string_fields[] = {
 		{ UF_SCHEMA, &Url::schema },
 		{ UF_HOST, &Url::host },
 		{ UF_PATH, &Url::path },
@@ -988,51 +1052,54 @@ Url parseUrl(const std::string& input, bool isConnect = false)
 		{ UF_FRAGMENT, &Url::fragment },
 		{ UF_USERINFO, &Url::userinfo }
 	};
-	for (const FieldDef& field : stringFields) {
+	for (const field_t& field : string_fields) {
 		if (u.field_set & (1 << field.first)) {
-			parsedUrl.*field.second = input.substr(
+			parsed_url.*field.second = input.substr(
 					u.field_data[field.first].off, u.field_data[field.first].len);
 		}
 	}
 
 	if (u.field_set & (1 << UF_PORT)) {
-		parsedUrl.port = std::stoul(input.substr(
+		parsed_url.port = std::stoul(input.substr(
 				u.field_data[UF_PORT].off, u.field_data[UF_PORT].len
 		));
 	}
 
-	return parsedUrl;
+	return parsed_url;
 }
+
 
 using detail::headers;
 
+
 } /* namespace http */
 
+
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::http_version& ver)
+StreamT& operator<<(StreamT& stream, const http::http_version_t& ver)
 {
 	stream << ver.to_string();
 	return stream;
 }
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, http::RequestHead::RequestType reqType)
+StreamT& operator<<(StreamT& stream, http::request_head::method_t method)
 {
-	stream << http_method_str(reqType);
+	stream << http_method_str(method);
 	return stream;
 }
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::Request& req)
+StreamT& operator<<(StreamT& stream, const http::request& req)
 {
-	stream << "HTTP/" << req.http_version_ << " " << req.type << " request.\n"
-			<< "\tUrl: '" << req.url << "'\n"
+	stream << "HTTP/" << req.http_version_ << " " << req.method_ << " request.\n"
+			<< "\tUrl: '" << req.url_ << "'\n"
 			<< "\tHeaders:\n";
 	for (const auto& fvPair : req.headers_) {
 		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
 	}
-	stream << "\tBody is " << req.body.size() << " bytes long.\n\tKeepAlive: "
-			<< (req.keepAlive ? "yes" : "no") << ".";
+	stream << "\tBody is " << req.body().size() << " bytes long.\n\tKeepAlive: "
+			<< (req.keep_alive_ ? "yes" : "no") << ".";
 	return stream;
 }
 

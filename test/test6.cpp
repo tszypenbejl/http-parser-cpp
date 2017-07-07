@@ -25,14 +25,14 @@ int main()
 	parser.feed(input.cbegin(), input.cend());
 
 	assert(1 == parser.parsedRequests.size());
-	assert("/demo" == parser.parsedRequests.front().url);
+	assert("/demo" == parser.parsedRequests.front().url());
 	assert("WebSocket" == parser.parsedRequests.front().get_header("Upgrade"));
 
 	assert(
 			"some non-http data apparently sent with the assumption that\n"
 			"the server supports http upgrades and will complete the upgrade\n"
 			"handshake by responding with appropriate headers."
-					== parser.protocolUpgradeData);
+					== parser.protocol_upgrade_data());
 
 	cout << "If you can see this message, the test passed OK" << endl;
 	return 0;
