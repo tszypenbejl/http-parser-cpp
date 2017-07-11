@@ -242,6 +242,24 @@ public:
 };
 
 
+class body_owner
+{
+	std::string body_;
+
+public:
+	body_owner()                             = default;
+	body_owner(const body_owner&)            = default;
+	body_owner& operator=(const body_owner&) = default;
+	body_owner(body_owner&&)                 = default;
+	body_owner& operator=(body_owner&&)      = default;
+
+	inline const std::string& body() const noexcept { return body_; }
+	inline void body(std::string b) { body_ = std::move(b); }
+	inline void append_body(const char* d, std::size_t len) { body_.append(d, len); }
+	inline std::string pop_body() { return std::move(body_); }
+};
+
+
 class headers_assembler
 {
 	headers_owner& headers_;
@@ -510,10 +528,8 @@ public:
 };
 
 
-class request : public request_head
+class request : public request_head, public detail::body_owner
 {
-	std::string body_;
-
 public:
 	request()                          = default;
 	request(const request&)            = default;
@@ -522,39 +538,52 @@ public:
 	request& operator=(request&&)      = default;
 
 	inline const request_head& head() const noexcept { return *this; }
-	inline const std::string&  body() const noexcept { return body_; }
-
 	inline void head(request_head h) { *static_cast<request_head*>(this) = std::move(h); }
-	inline void body(std::string b)  { body_ = std::move(b); }
-
-	inline void append_body(const char* d, std::size_t len) { body_.append(d, len); }
 };
 
 
-struct ResponseHead : detail::headers_owner
+class response_head : public detail::headers_owner
 {
-	unsigned statusCode = 0;
-	std::string statusText;
+	unsigned       status_code_  = 0;
+	std::string    status_text_;
 	http_version_t http_version_;
-	bool keepAlive = false;
+	bool           keep_alive_   = false;
+
 public:
-	ResponseHead()                               = default;
-	ResponseHead(const ResponseHead&)            = default;
-	ResponseHead(ResponseHead&&)                 = default;
-	ResponseHead& operator=(const ResponseHead&) = default;
-	ResponseHead& operator=(ResponseHead&&)      = default;
+	response_head()                                = default;
+	response_head(const response_head&)            = default;
+	response_head(response_head&&)                 = default;
+	response_head& operator=(const response_head&) = default;
+	response_head& operator=(response_head&&)      = default;
+
+	inline unsigned           status_code()  const noexcept { return status_code_; }
+	inline const std::string& status_text()  const noexcept { return status_text_; }
+	inline http_version_t     http_version() const noexcept { return http_version_; }
+	inline bool               keep_alive()   const noexcept { return keep_alive_; }
+
+	inline void status_code(unsigned sc)       noexcept { status_code_ = sc; }
+	inline void status_text(std::string st) { status_text_ = std::move(st); }
+	inline void http_version(http_version_t v) noexcept { http_version_ = v; }
+	inline void keep_alive(bool ka)            noexcept { keep_alive_ = ka; }
+
+	inline void append_status_text(const char *d, std::size_t len) { status_text_.append(d, len); }
 };
 
-struct Response : ResponseHead
+class response : public response_head, public detail::body_owner
 {
-	std::string body;
 public:
-	const ResponseHead& head() const noexcept { return *this; }
-	void head(ResponseHead h) { *static_cast<ResponseHead*>(this) = std::move(h); }
+	response()                           = default;
+	response(const response&)            = default;
+	response(response&&)                 = default;
+	response& operator=(const response&) = default;
+	response& operator=(response&&)      = default;
+
+	const response_head& head() const noexcept { return *this; }
+	void head(response_head h) { *static_cast<response_head*>(this) = std::move(h); }
 };
 
 using RequestConsumer = std::function<void(request&&)>;
-using ResponseConsumer = std::function<void(Response&&)>;
+using ResponseConsumer = std::function<void(response&&)>;
 
 class RequestParser : public detail::parser_base
 {
@@ -681,7 +710,7 @@ private:
 
 class ResponseParser : public detail::parser_base
 {
-	Response currentResponse;
+	response currentResponse;
 	detail::headers_assembler header_assembler_ { currentResponse };
 	ResponseConsumer responseConsumer;
 	detail::length_limiter responseLengthLimiter
@@ -694,7 +723,7 @@ class ResponseParser : public detail::parser_base
 	};
 
 public:
-	std::deque<Response> parsedResponses;
+	std::deque<response> parsedResponses;
 
 public:
 	ResponseParser()
@@ -730,7 +759,7 @@ private:
 
 	int on_message_begin()
 	{
-		currentResponse = Response();
+		currentResponse = response();
 		header_assembler_.reset();
 		responseLengthLimiter.reset();
 		return 0;
@@ -746,7 +775,7 @@ private:
 
 	int on_status(const char* data, std::size_t length)
 	{
-		currentResponse.statusText.append(data, length);
+		currentResponse.append_status_text(data, length);
 		return 0;
 	}
 
@@ -773,16 +802,15 @@ private:
 	int on_body(const char* data, std::size_t length)
 	{
 		responseLengthLimiter.check_length(length);
-		currentResponse.body.append(data, length);
+		currentResponse.append_body(data, length);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		currentResponse.statusCode = p_.status_code;
-		currentResponse.http_version_.major(p_.http_major);
-		currentResponse.http_version_.minor(p_.http_minor);
-		currentResponse.keepAlive = (http_should_keep_alive(&p_) != 0);
+		currentResponse.status_code(p_.status_code);
+		currentResponse.http_version(http_version_t(p_.http_major, p_.http_minor));
+		currentResponse.keep_alive(http_should_keep_alive(&p_) != 0);
 		if (responseConsumer) {
 			responseConsumer(std::move(currentResponse));
 		} else {
@@ -909,12 +937,12 @@ private:
 	}
 };
 
-using BigResponseCallback = std::function<void(const ResponseHead &responseHead,
+using BigResponseCallback = std::function<void(const response_head &responseHead,
 		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
 class BigResponseParser : public detail::parser_base
 {
-	ResponseHead currentResponse;
+	response_head currentResponse;
 	detail::headers_assembler header_assembler_ { currentResponse };
 	BigResponseCallback responseCallback;
 	detail::length_limiter headersLengthLimiter
@@ -948,7 +976,7 @@ private:
 
 	int on_message_begin()
 	{
-		currentResponse = ResponseHead();
+		currentResponse = response_head();
 		header_assembler_.reset();
 		headersLengthLimiter.reset();
 		return 0;
@@ -965,7 +993,7 @@ private:
 	int on_status(const char* data, std::size_t length)
 	{
 		headersLengthLimiter.check_length(length);
-		currentResponse.statusText.append(data, length);
+		currentResponse.append_status_text(data, length);
 		return 0;
 	}
 
@@ -986,10 +1014,9 @@ private:
 	int on_headers_complete()
 	{
 		header_assembler_.on_headers_complete();
-		currentResponse.statusCode = p_.status_code;
-		currentResponse.http_version_.major(p_.http_major);
-		currentResponse.http_version_.minor(p_.http_minor);
-		currentResponse.keepAlive = (http_should_keep_alive(&p_) != 0);
+		currentResponse.status_code(p_.status_code);
+		currentResponse.http_version(http_version_t(p_.http_major, p_.http_minor));
+		currentResponse.keep_alive(http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
 
@@ -1019,7 +1046,7 @@ private:
 };
 
 
-struct Url
+struct url_t
 {
 	std::string schema;
 	std::string host;
@@ -1031,7 +1058,7 @@ struct Url
 };
 
 
-Url parse_url(const std::string& input, bool is_connect = false)
+url_t parse_url(const std::string& input, bool is_connect = false)
 {
 	http_parser_url u;
 	http_parser_url_init(&u);
@@ -1041,16 +1068,16 @@ Url parse_url(const std::string& input, bool is_connect = false)
 		throw url_parse_error("Failed to parse this url: '" + input + "'");
 	}
 
-	Url parsed_url;
+	url_t parsed_url;
 
-	using field_t = std::pair<http_parser_url_fields, std::string Url::*>;
+	using field_t = std::pair<http_parser_url_fields, std::string url_t::*>;
 	static const field_t string_fields[] = {
-		{ UF_SCHEMA, &Url::schema },
-		{ UF_HOST, &Url::host },
-		{ UF_PATH, &Url::path },
-		{ UF_QUERY, &Url::query },
-		{ UF_FRAGMENT, &Url::fragment },
-		{ UF_USERINFO, &Url::userinfo }
+		{ UF_SCHEMA,   &url_t::schema },
+		{ UF_HOST,     &url_t::host },
+		{ UF_PATH,     &url_t::path },
+		{ UF_QUERY,    &url_t::query },
+		{ UF_FRAGMENT, &url_t::fragment },
+		{ UF_USERINFO, &url_t::userinfo }
 	};
 	for (const field_t& field : string_fields) {
 		if (u.field_set & (1 << field.first)) {
@@ -1104,21 +1131,21 @@ StreamT& operator<<(StreamT& stream, const http::request& req)
 }
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::Response& resp)
+StreamT& operator<<(StreamT& stream, const http::response& resp)
 {
-	stream << "HTTP/" << resp.http_version_ << " '" << resp.statusCode << "' "
-			<< resp.statusText << " response.\n"
+	stream << "HTTP/" << resp.http_version_ << " '" << resp.status_code_ << "' "
+			<< resp.status_text_ << " response.\n"
 			<< "\tHeaders:\n";
 	for (const auto& fvPair : resp.headers_) {
 		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
 	}
-	stream << "\tBody is " << resp.body.size() << " bytes long.\n\tKeepAlive: "
-			<< (resp.keepAlive ? "yes" : "no") << ".";
+	stream << "\tBody is " << resp.body().size() << " bytes long.\n\tKeepAlive: "
+			<< (resp.keep_alive_ ? "yes" : "no") << ".";
 	return stream;
 }
 
 template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::Url& url)
+StreamT& operator<<(StreamT& stream, const http::url_t& url)
 {
 	stream << "URL\n"
 			<< "schema: '" << url.schema << "'\n"

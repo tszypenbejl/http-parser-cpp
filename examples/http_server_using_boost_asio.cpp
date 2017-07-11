@@ -78,7 +78,7 @@ private:
 			return;
 		}
 		try {
-			Url url = parse_url(req.url());
+			url_t url = parse_url(req.url());
 			if ("/" == url.path) {
 				doWrite(
 						"HTTP/" + ver + " 200 OK\r\n" +

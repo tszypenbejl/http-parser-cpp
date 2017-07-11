@@ -8,9 +8,9 @@ bool operator==(const http::request& lhs, const http::request& rhs)
 			&& lhs.body() == rhs.body();
 }
 
-bool operator==(const http::Response& lhs, const http::Response& rhs)
+bool operator==(const http::response& lhs, const http::response& rhs)
 {
-	return lhs.statusCode == rhs.statusCode && lhs.statusText == rhs.statusText
-			&& lhs.http_version_ == rhs.http_version_ && lhs.all_headers() == rhs.all_headers()
-			&& lhs.body == rhs.body;
+	return lhs.status_code() == rhs.status_code() && lhs.status_text() == rhs.status_text()
+			&& lhs.http_version() == rhs.http_version() && lhs.all_headers() == rhs.all_headers()
+			&& lhs.body() == rhs.body();
 }

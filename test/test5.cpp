@@ -37,15 +37,15 @@ int main()
 	assert(parser.parsedResponses.at(0) == parser.parsedResponses.at(3));
 	assert(parser.parsedResponses.at(0) == parser.parsedResponses.at(4));
 
-	const Response& r = parser.parsedResponses.front();
-	assert(200U == r.statusCode);
-	assert("OK" == r.statusText);
-	assert(1 == r.http_version_.major() && 1 == r.http_version_.minor());
+	const response& r = parser.parsedResponses.front();
+	assert(200U == r.status_code());
+	assert("OK" == r.status_text());
+	assert(1 == r.http_version().major() && 1 == r.http_version().minor());
 	assert(3 == r.header_count());
 	assert("Tue, 07 Jun 2016 05:16:11 -0500" == r.get_header("date"));
 	assert("text/plain" == r.get_header("content-type"));
 	assert("15" == r.get_header("content-length"));
-	assert("Hello, World!\r\n" == r.body);
+	assert("Hello, World!\r\n" == r.body());
 	//std::cout << r << std::endl;
 
 	parser.parsedResponses.clear();

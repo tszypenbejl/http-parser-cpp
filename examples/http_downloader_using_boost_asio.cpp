@@ -10,7 +10,7 @@ using boost::asio::ip::tcp;
 using namespace http;
 
 std::string determineFileName(const std::string& urlPath,
-		const http::ResponseHead& rh)
+		const http::response_head& rh)
 {
 	(void) rh;
 	// TODO this obviously needs refinement
@@ -25,7 +25,7 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 
-		Url url;
+		url_t url;
 		bool urlParsedOk = false;
 		try {
 			url = parse_url(argv[1]);
@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
 		std::ofstream outputFile;
 		outputFile.exceptions(std::ofstream::failbit | std::ofstream::badbit);
 		bool completed = false;
-		auto myCallback = [&] (const http::ResponseHead& response,
+		auto myCallback = [&] (const http::response_head& response,
 				const char *bodyPart, std::size_t bodyPartLength, bool finished) {
 			if (!outputFile.is_open()) {
 				fileName = determineFileName(url.path, response);

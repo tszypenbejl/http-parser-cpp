@@ -8,7 +8,7 @@ int main()
 	using namespace std;
 	using namespace http;
 
-	Url url;
+	url_t url;
 
 	url = parse_url("http://hostname/");
 	assert("http" == url.schema);

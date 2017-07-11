@@ -20,7 +20,7 @@ http::request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
 		body.append(bodyPart, bodyPartLength);
 		//std::cout << body.size() << std::endl;
 		if (finished) {
-			request.head(head);
+			request.head(std::move(head));
 			done = true;
 		}
 	};

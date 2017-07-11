@@ -37,7 +37,7 @@ int main()
 	unsigned responsesParsed = 0;
 	bool exceptionThrown = false;
 
-	auto responseConsumer = [&responsesParsed] (Response&&) -> void { ++responsesParsed; };
+	auto responseConsumer = [&responsesParsed] (response&&) -> void { ++responsesParsed; };
 
 	ResponseParser sparser(responseConsumer);
 	ResponseParser lparser(responseConsumer);

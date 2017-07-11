@@ -7,20 +7,20 @@
 #include "../HttpParser.hpp"
 
 template<typename IterT>
-http::Response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
+http::response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
 {
-	http::Response response;
+	http::response response;
 	std::string body;
 	bool done = false;
 
-	auto callback = [&](const http::ResponseHead &head, const char *bodyPart,
+	auto callback = [&](const http::response_head &head, const char *bodyPart,
 			std::size_t bodyPartLength, bool finished)
 	{
 		assert(!done);
 		body.append(bodyPart, bodyPartLength);
 		//std::cout << body.size() << std::endl;
 		if (finished) {
-			response.head(head);
+			response.head(std::move(head));
 			done = true;
 		}
 	};
@@ -30,7 +30,7 @@ http::Response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
 	bigParser.feed_eof();
 
 	assert(done);
-	response.body = std::move(body);
+	response.body(std::move(body));
 	return response;
 }
 
@@ -58,8 +58,8 @@ int main()
 	std::string sinput = input;
 	std::list<char> linput(sinput.begin(), sinput.end());
 
-	Response baselineResponse;
-	ResponseParser ordinaryParser([&baselineResponse](Response&& r)
+	response baselineResponse;
+	ResponseParser ordinaryParser([&baselineResponse](response&& r)
 		{ baselineResponse = std::move(r); });
 	ordinaryParser.feed(input, sizeof(input) - 1);
 	ordinaryParser.feed_eof();
@@ -71,7 +71,7 @@ int main()
 	bool exceptionThrown = false;
 	try {
 		auto callback =
-				[](const ResponseHead &, const char *, std::size_t bodyPartLength, bool) {};
+				[](const response_head &, const char *, std::size_t bodyPartLength, bool) {};
 		BigResponseParser bigParser(callback);
 		bigParser.setMaxHeadersLength(10);
 		bigParser.feed(sinput.begin(), sinput.end());
