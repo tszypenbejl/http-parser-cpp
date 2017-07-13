@@ -89,8 +89,8 @@ int main(int argc, char* argv[])
 				std::cout << "Done." << std::endl;
 			}
 		};
-		http::BigResponseParser parser(myCallback);
-		parser.setMaxHeadersLength(1024 * 1024);
+		http::big_response_parser parser(myCallback);
+		parser.set_max_headers_length(1024 * 1024);
 		while (!completed) {
 			boost::system::error_code ec;
 			char reply[2048];

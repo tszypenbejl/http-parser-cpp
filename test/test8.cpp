@@ -25,7 +25,7 @@ http::response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
 		}
 	};
 
-	http::BigResponseParser bigParser(callback);
+	http::big_response_parser bigParser(callback);
 	bigParser.feed(inputBegin, inputEnd);
 	bigParser.feed_eof();
 
@@ -58,22 +58,21 @@ int main()
 	std::string sinput = input;
 	std::list<char> linput(sinput.begin(), sinput.end());
 
-	response baselineResponse;
-	ResponseParser ordinaryParser([&baselineResponse](response&& r)
-		{ baselineResponse = std::move(r); });
+	response baseline_response;
+	response_parser ordinaryParser([&baseline_response](response_parser& p)
+			{ baseline_response = p.pop_response(); });
 	ordinaryParser.feed(input, sizeof(input) - 1);
 	ordinaryParser.feed_eof();
-	//cout << baselineResponse;
 
-	assert(getResponseFromBigParser(sinput.begin(), sinput.end()) == baselineResponse);
-	assert(getResponseFromBigParser(linput.begin(), linput.end()) == baselineResponse);
+	assert(getResponseFromBigParser(sinput.begin(), sinput.end()) == baseline_response);
+	assert(getResponseFromBigParser(linput.begin(), linput.end()) == baseline_response);
 
 	bool exceptionThrown = false;
 	try {
 		auto callback =
 				[](const response_head &, const char *, std::size_t bodyPartLength, bool) {};
-		BigResponseParser bigParser(callback);
-		bigParser.setMaxHeadersLength(10);
+		big_response_parser bigParser(callback);
+		bigParser.set_max_headers_length(10);
 		bigParser.feed(sinput.begin(), sinput.end());
 	} catch (const response_headers_too_big &) {
 		exceptionThrown = true;

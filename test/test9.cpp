@@ -25,7 +25,7 @@ http::request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
 		}
 	};
 
-	http::BigRequestParser bigParser(callback);
+	http::big_request_parser bigParser(callback);
 	bigParser.feed(inputBegin, inputEnd);
 	bigParser.feed_eof();
 
@@ -81,8 +81,8 @@ int main()
 	try {
 		auto callback =
 				[](const request_head&, const char *, std::size_t bodyPartLength, bool) {};
-		BigRequestParser bigParser(callback);
-		bigParser.setMaxHeadersLength(10);
+		big_request_parser bigParser(callback);
+		bigParser.set_max_headers_length(10);
 		bigParser.feed(sinput.begin(), sinput.end());
 	} catch (const request_headers_too_big &) {
 		exceptionThrown = true;

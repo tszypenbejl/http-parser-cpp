@@ -11,7 +11,7 @@ int main()
 	using namespace std;
 	using namespace http;
 
-	ResponseParser parser;
+	response_parser parser;
 
 	char input[] =
 			"HTTP/1.1 200 OK\r\n"
@@ -31,13 +31,18 @@ int main()
 	parser.feed(linput.cbegin(), linput.cend());
 	parser.feed_eof();
 
-	assert(parser.parsedResponses.size() == 5);
-	assert(parser.parsedResponses.at(0) == parser.parsedResponses.at(1));
-	assert(parser.parsedResponses.at(0) == parser.parsedResponses.at(2));
-	assert(parser.parsedResponses.at(0) == parser.parsedResponses.at(3));
-	assert(parser.parsedResponses.at(0) == parser.parsedResponses.at(4));
+	std::vector<response> parsed_responses;
+	while (parser.get_response_count() > 0) {
+		parsed_responses.push_back(parser.pop_response());
+	}
 
-	const response& r = parser.parsedResponses.front();
+	assert(parsed_responses.size() == 5);
+	assert(parsed_responses.at(0) == parsed_responses.at(1));
+	assert(parsed_responses.at(0) == parsed_responses.at(2));
+	assert(parsed_responses.at(0) == parsed_responses.at(3));
+	assert(parsed_responses.at(0) == parsed_responses.at(4));
+
+	const response r = parsed_responses.front();
 	assert(200U == r.status_code());
 	assert("OK" == r.status_text());
 	assert(1 == r.http_version().major() && 1 == r.http_version().minor());
@@ -47,8 +52,6 @@ int main()
 	assert("15" == r.get_header("content-length"));
 	assert("Hello, World!\r\n" == r.body());
 	//std::cout << r << std::endl;
-
-	parser.parsedResponses.clear();
 
 	cout << "If you can see this message, the test passed OK" << endl;
 	return 0;

@@ -37,13 +37,13 @@ int main()
 	unsigned responsesParsed = 0;
 	bool exceptionThrown = false;
 
-	auto responseConsumer = [&responsesParsed] (response&&) -> void { ++responsesParsed; };
+	auto responseConsumer = [&responsesParsed] (response_parser&) -> void { ++responsesParsed; };
 
-	ResponseParser sparser(responseConsumer);
-	ResponseParser lparser(responseConsumer);
+	response_parser sparser(responseConsumer);
+	response_parser lparser(responseConsumer);
 
-	sparser.setMaxResponseLength(sizeof(input1) - 1);
-	lparser.setMaxResponseLength(sizeof(input1) - 1);
+	sparser.set_max_response_length(sizeof(input1) - 1);
+	lparser.set_max_response_length(sizeof(input1) - 1);
 
 	try {
 		sparser.feed(sinput.cbegin(), sinput.cend());

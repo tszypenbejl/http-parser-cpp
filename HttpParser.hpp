@@ -23,10 +23,6 @@
 namespace http {
 
 
-using protocol_upgrade_handler =
-		std::function<void(const char* begin, const char* end)>;
-
-
 class parse_error : public std::runtime_error
 {
 public:
@@ -95,6 +91,10 @@ class header_not_found_error : public std::runtime_error
 public:
 	using runtime_error::runtime_error;
 };
+
+
+using protocol_upgrade_handler =
+		std::function<void(const char* begin, const char* end)>;
 
 
 namespace detail {
@@ -582,22 +582,21 @@ public:
 	void head(response_head h) { *static_cast<response_head*>(this) = std::move(h); }
 };
 
-using RequestConsumer = std::function<void(request&&)>;
-using ResponseConsumer = std::function<void(response&&)>;
 
 class RequestParser : public detail::parser_base
 {
+public:
+	using new_request_callback = std::function<void(request&&)>;
+
+private:
 	request currentRequest;
-	detail::headers_assembler header_assembler_ { currentRequest };
-	RequestConsumer requestConsumer;
-	detail::length_limiter requestLengthLimiter
-	{
-		[](std::size_t, std::size_t limit)
-		{
-			throw request_too_big("Request exceeded size limit of "
-					+ std::to_string(limit));
-		}
-	};
+	detail::headers_assembler headers_assembler_  { currentRequest };
+	new_request_callback requestConsumer;
+	detail::length_limiter request_length_limiter { [](std::size_t, std::size_t limit)
+			{
+				throw request_too_big("Request exceeded size limit of "
+						+ std::to_string(limit));
+			}};
 
 public:
 	std::deque<request> parsedRequests;
@@ -606,26 +605,26 @@ public:
 	RequestParser()
 		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()) {}
 
-	RequestParser(RequestConsumer requestConsumer)
+	RequestParser(new_request_callback requestConsumer)
 		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
 			requestConsumer(requestConsumer) {}
 
 	RequestParser(protocol_upgrade_handler protocolUpgradeHandler)
 		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get())
 	{
-		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
-	RequestParser(RequestConsumer requestConsumer,
+	RequestParser(new_request_callback requestConsumer,
 			protocol_upgrade_handler protocolUpgradeHandler)
 		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
 			requestConsumer(requestConsumer)
 	{
-		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
 	void setMaxRequestLength(std::size_t maxLength) // 0 means unlimited
-			{ requestLengthLimiter.max_length(maxLength); }
+			{ request_length_limiter.max_length(maxLength); }
 
 private:
 	void throw_parse_error(const std::string& errorMessage) override
@@ -637,14 +636,14 @@ private:
 	int on_message_begin()
 	{
 		currentRequest = request();
-		header_assembler_.reset();
-		requestLengthLimiter.reset();
+		headers_assembler_.reset();
+		request_length_limiter.reset();
 		return 0;
 	}
 
 	int on_url(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.check_length(length);
+		request_length_limiter.check_length(length);
 		currentRequest.append_url(data, length);
 		return 0;
 	}
@@ -657,27 +656,27 @@ private:
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.check_length(length);
-		header_assembler_.on_header_field(data, length);
+		request_length_limiter.check_length(length);
+		headers_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.check_length(length);
-		header_assembler_.on_header_value(data, length);
+		request_length_limiter.check_length(length);
+		headers_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
 	int on_headers_complete()
 	{
-		header_assembler_.on_headers_complete();
+		headers_assembler_.on_headers_complete();
 		return 0;
 	}
 
 	int on_body(const char* data, std::size_t length)
 	{
-		requestLengthLimiter.check_length(length);
+		request_length_limiter.check_length(length);
 		currentRequest.append_body(data, length);
 		return 0;
 	}
@@ -697,71 +696,83 @@ private:
 
 	int on_chunk_header()
 	{
-		header_assembler_.reset();
+		headers_assembler_.reset();
 		return 0;
 	}
 
 	int on_chunk_complete()
 	{
-		header_assembler_.on_headers_complete();
+		headers_assembler_.on_headers_complete();
 		return 0;
 	}
 };
 
-class ResponseParser : public detail::parser_base
+class response_parser : public detail::parser_base
 {
-	response currentResponse;
-	detail::headers_assembler header_assembler_ { currentResponse };
-	ResponseConsumer responseConsumer;
-	detail::length_limiter responseLengthLimiter
+public:
+	using new_response_callback = std::function<void(response_parser&)>;
+
+private:
+	response                  current_response_;
+	detail::headers_assembler headers_assembler_        { current_response_ };
+	new_response_callback     callback_;
+	detail::length_limiter    response_length_limiter_  { [](std::size_t, std::size_t limit)
+			{
+				throw response_too_big("Response exceeded size limit of "
+						+ std::to_string(limit));
+			}};
+	std::deque<response>      parsed_responses_;
+
+public:
+	response_parser()
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()) {}
+
+	response_parser(new_response_callback callback)
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()),
+			callback_(callback) {}
+
+	response_parser(protocol_upgrade_handler proto_upgrade_handler)
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get())
 	{
-		[](std::size_t, std::size_t limit)
-		{
-			throw response_too_big("Response exceeded size limit of "
-					+ std::to_string(limit));
+		protocol_upgrade_handler_ = proto_upgrade_handler;
+	}
+
+	response_parser(new_response_callback callback,
+			protocol_upgrade_handler proto_upgrade_handler)
+		: parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()),
+			callback_(callback)
+	{
+		protocol_upgrade_handler_ = proto_upgrade_handler;
+	}
+
+	void set_max_response_length(std::size_t maxLength) // 0 means unlimited
+			{ response_length_limiter_.max_length(maxLength); }
+
+	inline std::size_t get_response_count() const noexcept { return parsed_responses_.size(); }
+
+	inline response pop_response()
+	{
+		if (parsed_responses_.empty()) {
+			throw std::out_of_range("response_parser::pop_response called "
+					"while no responses available");
 		}
-	};
-
-public:
-	std::deque<response> parsedResponses;
-
-public:
-	ResponseParser()
-		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()) {}
-
-	ResponseParser(ResponseConsumer responseConsumer)
-		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
-			responseConsumer(responseConsumer) {}
-
-	ResponseParser(protocol_upgrade_handler protocolUpgradeHandler)
-		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get())
-	{
-		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
+		response ret = std::move(parsed_responses_.front());
+		parsed_responses_.pop_front();
+		return ret;
 	}
-
-	ResponseParser(ResponseConsumer responseConsumer,
-			protocol_upgrade_handler protocolUpgradeHandler)
-		: parser_base(HTTP_RESPONSE, detail::parser_settings<ResponseParser>::get()),
-			responseConsumer(responseConsumer)
-	{
-		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
-	}
-
-	void setMaxResponseLength(std::size_t maxLength) // 0 means unlimited
-			{ responseLengthLimiter.max_length(maxLength); }
 
 private:
 	void throw_parse_error(const std::string& errorMessage) override
 			{ throw response_parse_error(errorMessage); }
 
 private:
-	friend struct detail::callbacks<ResponseParser>;
+	friend struct detail::callbacks<response_parser>;
 
 	int on_message_begin()
 	{
-		currentResponse = response();
-		header_assembler_.reset();
-		responseLengthLimiter.reset();
+		current_response_ = response();
+		headers_assembler_.reset();
+		response_length_limiter_.reset();
 		return 0;
 	}
 
@@ -775,111 +786,111 @@ private:
 
 	int on_status(const char* data, std::size_t length)
 	{
-		currentResponse.append_status_text(data, length);
+		current_response_.append_status_text(data, length);
 		return 0;
 	}
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		responseLengthLimiter.check_length(length);
-		header_assembler_.on_header_field(data, length);
+		response_length_limiter_.check_length(length);
+		headers_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		responseLengthLimiter.check_length(length);
-		header_assembler_.on_header_value(data, length);
+		response_length_limiter_.check_length(length);
+		headers_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
 	int on_headers_complete()
 	{
-		header_assembler_.on_headers_complete();
+		headers_assembler_.on_headers_complete();
 		return 0;
 	}
 
 	int on_body(const char* data, std::size_t length)
 	{
-		responseLengthLimiter.check_length(length);
-		currentResponse.append_body(data, length);
+		response_length_limiter_.check_length(length);
+		current_response_.append_body(data, length);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		currentResponse.status_code(p_.status_code);
-		currentResponse.http_version(http_version_t(p_.http_major, p_.http_minor));
-		currentResponse.keep_alive(http_should_keep_alive(&p_) != 0);
-		if (responseConsumer) {
-			responseConsumer(std::move(currentResponse));
-		} else {
-			parsedResponses.push_back(std::move(currentResponse));
+		current_response_.status_code(p_.status_code);
+		current_response_.http_version(http_version_t(p_.http_major, p_.http_minor));
+		current_response_.keep_alive(http_should_keep_alive(&p_) != 0);
+		parsed_responses_.push_back(std::move(current_response_));
+		current_response_ = response();
+		if (callback_) {
+			callback_(*this);
 		}
 		return 0;
 	}
 
 	int on_chunk_header()
 	{
-		header_assembler_.reset();
+		headers_assembler_.reset();
 		return 0;
 	}
 
 	int on_chunk_complete()
 	{
-		header_assembler_.on_headers_complete();
+		headers_assembler_.on_headers_complete();
 		return 0;
 	}
 };
 
-using BigRequestCallback = std::function<void(const request_head &requestHead,
-		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
-class BigRequestParser : public detail::parser_base
+class big_request_parser : public detail::parser_base
 {
-	request_head currentRequest;
-	detail::headers_assembler header_assembler_ { currentRequest };
-	BigRequestCallback requestCallback;
-	detail::length_limiter headersLengthLimiter
-	{
-		[](std::size_t, std::size_t limit)
-		{
-			throw request_headers_too_big("Request headers exceeded size limit of "
-					+ std::to_string(limit));
-		}
-	};
+public:
+	using big_request_callback = std::function<void(const request_head &request_head,
+			const char *body_part, std::size_t body_part_length, bool finished)>;
+
+private:
+	request_head              current_request_;
+	detail::headers_assembler headers_assembler_ { current_request_ };
+	big_request_callback      callback_;
+	detail::length_limiter    headers_length_limiter_ { [](std::size_t, std::size_t limit)
+			{
+				throw request_headers_too_big("Request headers exceeded size limit of "
+						+ std::to_string(limit));
+			}};
 
 public:
-	BigRequestParser(BigRequestCallback requestCallback,
+	big_request_parser(big_request_callback requestCallback,
 			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
-		: parser_base(HTTP_REQUEST, detail::parser_settings<BigRequestParser>::get()),
-			requestCallback(requestCallback)
+		: parser_base(HTTP_REQUEST, detail::parser_settings<big_request_parser>::get()),
+			callback_(requestCallback)
 	{
-		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = protocolUpgradeHandler;
 	}
 
-	void setMaxHeadersLength(std::size_t maxLength) // 0 means unlimited
-			{ headersLengthLimiter.max_length(maxLength); }
+	void set_max_headers_length(std::size_t maxLength) // 0 means unlimited
+			{ headers_length_limiter_.max_length(maxLength); }
 
 private:
 	void throw_parse_error(const std::string& errorMessage) override
 			{ throw request_parse_error(errorMessage); }
 
 private:
-	friend struct detail::callbacks<BigRequestParser>;
+	friend struct detail::callbacks<big_request_parser>;
 
 	int on_message_begin()
 	{
-		currentRequest = request_head();
-		header_assembler_.reset();
-		headersLengthLimiter.reset();
+		current_request_ = request_head();
+		headers_assembler_.reset();
+		headers_length_limiter_.reset();
 		return 0;
 	}
 
 	int on_url(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.check_length(length);
-		currentRequest.append_url(data, length);
+		headers_length_limiter_.check_length(length);
+		current_request_.append_url(data, length);
 		return 0;
 	}
 
@@ -891,94 +902,94 @@ private:
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.check_length(length);
-		header_assembler_.on_header_field(data, length);
+		headers_length_limiter_.check_length(length);
+		headers_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.check_length(length);
-		header_assembler_.on_header_value(data, length);
+		headers_length_limiter_.check_length(length);
+		headers_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
 	int on_headers_complete()
 	{
-		header_assembler_.on_headers_complete();
-		currentRequest.method(static_cast<request_head::method_t>(p_.method));
-		currentRequest.http_versIon(http_version_t(p_.http_major, p_.http_minor));
-		currentRequest.keep_alive(http_should_keep_alive(&p_) != 0);
+		headers_assembler_.on_headers_complete();
+		current_request_.method(static_cast<request_head::method_t>(p_.method));
+		current_request_.http_versIon(http_version_t(p_.http_major, p_.http_minor));
+		current_request_.keep_alive(http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
 
 	int on_body(const char* data, std::size_t length)
 	{
-		requestCallback(currentRequest, data, length, false);
+		callback_(current_request_, data, length, false);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		requestCallback(currentRequest, nullptr, 0, true);
+		callback_(current_request_, nullptr, 0, true);
 		return 0;
 	}
 
 	int on_chunk_header()
 	{
-		header_assembler_.reset();
+		headers_assembler_.reset();
 		return 0;
 	}
 
 	int on_chunk_complete()
 	{
-		header_assembler_.on_headers_complete();
+		headers_assembler_.on_headers_complete();
 		return 0;
 	}
 };
 
-using BigResponseCallback = std::function<void(const response_head &responseHead,
-		const char *bodyPart, std::size_t bodyPartLength, bool finished)>;
 
-class BigResponseParser : public detail::parser_base
+class big_response_parser : public detail::parser_base
 {
-	response_head currentResponse;
-	detail::headers_assembler header_assembler_ { currentResponse };
-	BigResponseCallback responseCallback;
-	detail::length_limiter headersLengthLimiter
-	{
-		[](std::size_t, std::size_t limit)
-		{
-			throw response_headers_too_big("Response headers exceeded size limit of "
-					+ std::to_string(limit));
-		}
-	};
+public:
+	using big_response_callback = std::function<void(const response_head &response_head,
+			const char *body_part, std::size_t body_part_length, bool finished)>;
+
+private:
+	response_head             current_response_;
+	detail::headers_assembler headers_assembler_      { current_response_ };
+	big_response_callback     callback_;
+	detail::length_limiter    headers_length_limiter_ { [](std::size_t, std::size_t limit)
+			{
+				throw response_headers_too_big("Response headers exceeded size limit of "
+						+ std::to_string(limit));
+			}};
 
 public:
-	BigResponseParser(BigResponseCallback responseCallback,
-			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
+	big_response_parser(big_response_callback responseCallback,
+			protocol_upgrade_handler proto_upgrade_handler = nullptr)
 		: parser_base(HTTP_RESPONSE,
-					detail::parser_settings<BigResponseParser>::get()),
-			responseCallback(responseCallback)
+					detail::parser_settings<big_response_parser>::get()),
+			callback_(responseCallback)
 	{
-		this->protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = proto_upgrade_handler;
 	}
 
-	void setMaxHeadersLength(std::size_t maxLength) // 0 means unlimited
-			{ headersLengthLimiter.max_length(maxLength); }
+	void set_max_headers_length(std::size_t maxLength) // 0 means unlimited
+			{ headers_length_limiter_.max_length(maxLength); }
 
 private:
 	void throw_parse_error(const std::string& errorMessage) override
 			{ throw response_parse_error(errorMessage); }
 
 private:
-	friend struct detail::callbacks<BigResponseParser>;
+	friend struct detail::callbacks<big_response_parser>;
 
 	int on_message_begin()
 	{
-		currentResponse = response_head();
-		header_assembler_.reset();
-		headersLengthLimiter.reset();
+		current_response_ = response_head();
+		headers_assembler_.reset();
+		headers_length_limiter_.reset();
 		return 0;
 	}
 
@@ -992,55 +1003,55 @@ private:
 
 	int on_status(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.check_length(length);
-		currentResponse.append_status_text(data, length);
+		headers_length_limiter_.check_length(length);
+		current_response_.append_status_text(data, length);
 		return 0;
 	}
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.check_length(length);
-		header_assembler_.on_header_field(data, length);
+		headers_length_limiter_.check_length(length);
+		headers_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		headersLengthLimiter.check_length(length);
-		header_assembler_.on_header_value(data, length);
+		headers_length_limiter_.check_length(length);
+		headers_assembler_.on_header_value(data, length);
 		return 0;
 	}
 
 	int on_headers_complete()
 	{
-		header_assembler_.on_headers_complete();
-		currentResponse.status_code(p_.status_code);
-		currentResponse.http_version(http_version_t(p_.http_major, p_.http_minor));
-		currentResponse.keep_alive(http_should_keep_alive(&p_) != 0);
+		headers_assembler_.on_headers_complete();
+		current_response_.status_code(p_.status_code);
+		current_response_.http_version(http_version_t(p_.http_major, p_.http_minor));
+		current_response_.keep_alive(http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
 
 	int on_body(const char* data, std::size_t length)
 	{
-		responseCallback(currentResponse, data, length, false);
+		callback_(current_response_, data, length, false);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		responseCallback(currentResponse, nullptr, 0, true);
+		callback_(current_response_, nullptr, 0, true);
 		return 0;
 	}
 
 	int on_chunk_header()
 	{
-		header_assembler_.reset();
+		headers_assembler_.reset();
 		return 0;
 	}
 
 	int on_chunk_complete()
 	{
-		header_assembler_.on_headers_complete();
+		headers_assembler_.on_headers_complete();
 		return 0;
 	}
 };
