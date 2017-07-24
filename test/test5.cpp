@@ -4,7 +4,7 @@
 #include <vector>
 #include <list>
 #include "testhelpers.hpp"
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 int main()
 {

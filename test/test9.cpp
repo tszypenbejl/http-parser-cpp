@@ -4,7 +4,7 @@
 #include <vector>
 #include <list>
 #include "testhelpers.hpp"
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 template<typename IterT>
 http::request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
@@ -69,8 +69,8 @@ int main()
 	std::list<char> linput(sinput.begin(), sinput.end());
 
 	request baselineRequest;
-	RequestParser ordinaryParser([&baselineRequest](request&& r)
-		{ baselineRequest = std::move(r); });
+	request_parser ordinaryParser([&baselineRequest](request_parser& rp)
+		{ baselineRequest = rp.pop_request(); });
 	ordinaryParser.feed(input, sizeof(input) - 1);
 	ordinaryParser.feed_eof();
 

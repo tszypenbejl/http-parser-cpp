@@ -1,7 +1,7 @@
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 int main()
 {

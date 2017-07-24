@@ -1,14 +1,14 @@
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 int main()
 {
 	using namespace std;
 	using namespace http;
 
-	RequestParser parser;
+	request_parser parser;
 
 	const std::string input = "definitely not a valid HTTP request";
 
@@ -17,7 +17,6 @@ int main()
 		parser.feed(input.cbegin(), input.cend());
 		parser.feed_eof();
 	} catch (const request_parse_error& e) {
-		//cerr << e.what() << endl;
 		parseErrorOccurred = true;
 	}
 	assert(parseErrorOccurred);

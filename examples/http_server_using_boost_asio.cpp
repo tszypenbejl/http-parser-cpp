@@ -5,7 +5,7 @@
 #include <memory>
 #include <utility>
 #include <boost/asio.hpp>
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 using boost::asio::ip::tcp;
 using namespace http;
@@ -18,12 +18,12 @@ private:
 	tcp::socket socket;
 	bool keepAlive = true;
 	char inputBuf[inputBufLen];
-	RequestParser reqParser;
+	request_parser reqParser;
 
 public:
 	Session(tcp::socket socket)
 		: socket(std::move(socket)),
-			reqParser([this](request&& r) { onRequestReceived(r); }) {}
+			reqParser([this](request_parser&) { onRequestReceived(); }) {}
 
 	void start() { doRead(); }
 
@@ -65,8 +65,9 @@ private:
 				writeCallback);
 	}
 
-	void onRequestReceived(request& req)
+	void onRequestReceived()
 	{
+		request req = reqParser.pop_request();
 		keepAlive = req.keep_alive();
 		const std::string ver = req.http_version().to_string();
 		const std::string extraHeaders = keepAlive ? "" : "Connection: close\r\n";

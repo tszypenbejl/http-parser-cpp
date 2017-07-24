@@ -4,7 +4,7 @@
 #include <fstream>
 #include <libgen.h> /* for basename */
 #include <boost/asio.hpp>
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 using boost::asio::ip::tcp;
 using namespace http;

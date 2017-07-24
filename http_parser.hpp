@@ -103,8 +103,8 @@ namespace detail {
 template<typename Parser>
 class callbacks
 {
-	template<typename MethodT, typename... ArgsT>
-	inline static int call(http_parser* p, MethodT method, ArgsT... args)
+	template<typename Method, typename... Args>
+	inline static int call(http_parser* p, Method method, Args... args)
 	{
 		Parser& parser = *((Parser*) p->data);
 		try {
@@ -216,24 +216,24 @@ public:
 		}
 	}
 
-	bool has_header(const std::string& headerName) const noexcept
-			{ return headers_.count(headerName) > 0U; }
+	bool has_header(const std::string& header_name) const noexcept
+			{ return headers_.count(header_name) > 0U; }
 
-	const std::string& get_header(const std::string& headerName) const
+	const std::string& get_header(const std::string& header_name) const
 	{
-		headers::const_iterator it = headers_.find(headerName);
+		headers::const_iterator it = headers_.find(header_name);
 		if (headers_.cend() == it) {
 			throw header_not_found_error(
-					"Request does not have '" + headerName + "' header");
+					"Request does not have '" + header_name + "' header");
 		}
 		return it->second;
 	}
 
-	const std::string& get_header(const std::string& headerName,
-			const std::string& defaultValue) const noexcept
+	const std::string& get_header(const std::string& header_name,
+			const std::string& default_value) const noexcept
 	{
-		headers::const_iterator it = headers_.find(headerName);
-		return headers_.cend() == it ? defaultValue : it->second;
+		headers::const_iterator it = headers_.find(header_name);
+		return headers_.cend() == it ? default_value : it->second;
 	}
 
 	std::size_t header_count() const noexcept { return headers_.size(); }
@@ -345,8 +345,8 @@ public:
 };
 
 
-template <typename IterT>
-struct is_contiguous_memory_forward_iterator : std::is_pointer<IterT> {};
+template <typename Iter>
+struct is_contiguous_memory_forward_iterator : std::is_pointer<Iter> {};
 
 template <>
 struct is_contiguous_memory_forward_iterator
@@ -384,7 +384,7 @@ protected:
 		p_.data = this;
 	}
 
-	virtual void throw_parse_error(const std::string& errorMessage) = 0;
+	virtual void throw_parse_error(const std::string& error_message) = 0;
 
 public:
 	parser_base(const parser_base&) = delete;
@@ -416,10 +416,10 @@ public:
 			}
 			if (HTTP_PARSER_ERRNO(&p_) != HPE_OK || consumed_length > input_length
 					|| (consumed_length < input_length && !p_.upgrade)) {
-				std::ostringstream errMsg;
-				errMsg << "HTTP Parse error on character " << total_consumed_length_
+				std::ostringstream err_msg;
+				err_msg << "HTTP Parse error on character " << total_consumed_length_
 						<< ": " << http_errno_name(HTTP_PARSER_ERRNO(&p_));
-				throw_parse_error(errMsg.str());
+				throw_parse_error(err_msg.str());
 			}
 			if (p_.upgrade) {
 				feed(input + consumed_length, input_length - consumed_length);
@@ -427,27 +427,27 @@ public:
 		}
 	}
 
-	template<typename IterT>
+	template<typename Iter>
 	typename std::enable_if<std::is_same<
-			typename std::iterator_traits<IterT>::value_type, char>::value>::type
-	feed(IterT begin, IterT end) { feed_iter(begin, end); }
+			typename std::iterator_traits<Iter>::value_type, char>::value>::type
+	feed(Iter begin, Iter end) { feed_iter(begin, end); }
 
 	void feed_eof() { (void) feed(nullptr, 0); }
 
 private:
-	template<typename IterT>
-	typename std::enable_if<!is_contiguous_memory_forward_iterator<IterT>::value>::type
-	feed_iter(IterT begin, IterT end)
+	template<typename Iter>
+	typename std::enable_if<!is_contiguous_memory_forward_iterator<Iter>::value>::type
+	feed_iter(Iter begin, Iter end)
 	{
-		for (IterT it = begin; it != end; ++it) {
+		for (Iter it = begin; it != end; ++it) {
 			char c = *it;
 			feed(&c, 1);
 		}
 	}
 
-	template<typename IterT>
-	typename std::enable_if<is_contiguous_memory_forward_iterator<IterT>::value>::type
-	feed_iter(IterT begin, IterT end)
+	template<typename Iter>
+	typename std::enable_if<is_contiguous_memory_forward_iterator<Iter>::value>::type
+	feed_iter(Iter begin, Iter end)
 	{
 		const char* buf = &(*begin);
 		const std::size_t len = end - begin;
@@ -520,7 +520,7 @@ public:
 	inline const std::string& url()          const noexcept { return url_; }
 
 	inline void method(method_t m)             noexcept { method_ = m; }
-	inline void http_versIon(http_version_t v) noexcept { http_version_ = v; }
+	inline void http_version(http_version_t v) noexcept { http_version_ = v; }
 	inline void keep_alive(bool ka)            noexcept { keep_alive_ = ka; }
 	inline void url(std::string u)                      { url_ = std::move(u); }
 
@@ -583,68 +583,79 @@ public:
 };
 
 
-class RequestParser : public detail::parser_base
+class request_parser : public detail::parser_base
 {
 public:
-	using new_request_callback = std::function<void(request&&)>;
+	using new_request_callback = std::function<void(request_parser&)>;
 
 private:
-	request currentRequest;
-	detail::headers_assembler headers_assembler_  { currentRequest };
-	new_request_callback requestConsumer;
-	detail::length_limiter request_length_limiter { [](std::size_t, std::size_t limit)
+	request                   current_request_;
+	detail::headers_assembler headers_assembler_      { current_request_ };
+	new_request_callback      callback_;
+	detail::length_limiter    request_length_limiter_ { [](std::size_t, std::size_t limit)
 			{
 				throw request_too_big("Request exceeded size limit of "
 						+ std::to_string(limit));
 			}};
+	std::deque<request>       parsed_requests_;
 
 public:
-	std::deque<request> parsedRequests;
+	request_parser()
+		: parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()) {}
 
-public:
-	RequestParser()
-		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()) {}
+	request_parser(new_request_callback callback)
+		: parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()),
+			callback_(callback) {}
 
-	RequestParser(new_request_callback requestConsumer)
-		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
-			requestConsumer(requestConsumer) {}
-
-	RequestParser(protocol_upgrade_handler protocolUpgradeHandler)
-		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get())
+	request_parser(protocol_upgrade_handler protocol_upgrade_handler)
+		: parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get())
 	{
-		protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = protocol_upgrade_handler;
 	}
 
-	RequestParser(new_request_callback requestConsumer,
-			protocol_upgrade_handler protocolUpgradeHandler)
-		: parser_base(HTTP_REQUEST, detail::parser_settings<RequestParser>::get()),
-			requestConsumer(requestConsumer)
+	request_parser(new_request_callback callback,
+			protocol_upgrade_handler protocol_upgrade_handler)
+		: parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()),
+			callback_(callback)
 	{
-		protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = protocol_upgrade_handler;
 	}
 
-	void setMaxRequestLength(std::size_t maxLength) // 0 means unlimited
-			{ request_length_limiter.max_length(maxLength); }
+	void set_max_request_rength(std::size_t max_length) // 0 means unlimited
+			{ request_length_limiter_.max_length(max_length); }
+
+	inline std::size_t get_request_count() const noexcept { return parsed_requests_.size(); }
+
+	inline request pop_request()
+	{
+		if (parsed_requests_.empty()) {
+			throw std::out_of_range("requeest_parser::pop_request called "
+					"while no requests available");
+		}
+		request ret = std::move(parsed_requests_.front());
+		parsed_requests_.pop_front();
+		return ret;
+	}
 
 private:
-	void throw_parse_error(const std::string& errorMessage) override
-			{ throw request_parse_error(errorMessage); }
+	void throw_parse_error(const std::string& error_message) override
+			{ throw request_parse_error(error_message); }
 
 private:
-	friend struct detail::callbacks<RequestParser>;
+	friend struct detail::callbacks<request_parser>;
 
 	int on_message_begin()
 	{
-		currentRequest = request();
+		current_request_ = request();
 		headers_assembler_.reset();
-		request_length_limiter.reset();
+		request_length_limiter_.reset();
 		return 0;
 	}
 
 	int on_url(const char* data, std::size_t length)
 	{
-		request_length_limiter.check_length(length);
-		currentRequest.append_url(data, length);
+		request_length_limiter_.check_length(length);
+		current_request_.append_url(data, length);
 		return 0;
 	}
 
@@ -656,14 +667,14 @@ private:
 
 	int on_header_field(const char* data, std::size_t length)
 	{
-		request_length_limiter.check_length(length);
+		request_length_limiter_.check_length(length);
 		headers_assembler_.on_header_field(data, length);
 		return 0;
 	}
 
 	int on_header_value(const char* data, std::size_t length)
 	{
-		request_length_limiter.check_length(length);
+		request_length_limiter_.check_length(length);
 		headers_assembler_.on_header_value(data, length);
 		return 0;
 	}
@@ -676,20 +687,19 @@ private:
 
 	int on_body(const char* data, std::size_t length)
 	{
-		request_length_limiter.check_length(length);
-		currentRequest.append_body(data, length);
+		request_length_limiter_.check_length(length);
+		current_request_.append_body(data, length);
 		return 0;
 	}
 
 	int on_message_complete()
 	{
-		currentRequest.method(static_cast<request_head::method_t>(p_.method));
-		currentRequest.http_versIon(http_version_t(p_.http_major, p_.http_minor));
-		currentRequest.keep_alive(http_should_keep_alive(&p_) != 0);
-		if (requestConsumer) {
-			requestConsumer(std::move(currentRequest));
-		} else {
-			parsedRequests.push_back(std::move(currentRequest));
+		current_request_.method(static_cast<request_head::method_t>(p_.method));
+		current_request_.http_version(http_version_t(p_.http_major, p_.http_minor));
+		current_request_.keep_alive(http_should_keep_alive(&p_) != 0);
+			parsed_requests_.push_back(std::move(current_request_));
+		if (callback_) {
+			callback_(*this);
 		}
 		return 0;
 	}
@@ -745,8 +755,8 @@ public:
 		protocol_upgrade_handler_ = proto_upgrade_handler;
 	}
 
-	void set_max_response_length(std::size_t maxLength) // 0 means unlimited
-			{ response_length_limiter_.max_length(maxLength); }
+	void set_max_response_length(std::size_t max_length) // 0 means unlimited
+			{ response_length_limiter_.max_length(max_length); }
 
 	inline std::size_t get_response_count() const noexcept { return parsed_responses_.size(); }
 
@@ -762,8 +772,8 @@ public:
 	}
 
 private:
-	void throw_parse_error(const std::string& errorMessage) override
-			{ throw response_parse_error(errorMessage); }
+	void throw_parse_error(const std::string& error_message) override
+			{ throw response_parse_error(error_message); }
 
 private:
 	friend struct detail::callbacks<response_parser>;
@@ -861,20 +871,20 @@ private:
 			}};
 
 public:
-	big_request_parser(big_request_callback requestCallback,
-			protocol_upgrade_handler protocolUpgradeHandler = nullptr)
+	big_request_parser(big_request_callback callback,
+			protocol_upgrade_handler protocol_upgrade_handler = nullptr)
 		: parser_base(HTTP_REQUEST, detail::parser_settings<big_request_parser>::get()),
-			callback_(requestCallback)
+			callback_(callback)
 	{
-		protocol_upgrade_handler_ = protocolUpgradeHandler;
+		protocol_upgrade_handler_ = protocol_upgrade_handler;
 	}
 
-	void set_max_headers_length(std::size_t maxLength) // 0 means unlimited
-			{ headers_length_limiter_.max_length(maxLength); }
+	void set_max_headers_length(std::size_t max_length) // 0 means unlimited
+			{ headers_length_limiter_.max_length(max_length); }
 
 private:
-	void throw_parse_error(const std::string& errorMessage) override
-			{ throw request_parse_error(errorMessage); }
+	void throw_parse_error(const std::string& error_message) override
+			{ throw request_parse_error(error_message); }
 
 private:
 	friend struct detail::callbacks<big_request_parser>;
@@ -918,7 +928,7 @@ private:
 	{
 		headers_assembler_.on_headers_complete();
 		current_request_.method(static_cast<request_head::method_t>(p_.method));
-		current_request_.http_versIon(http_version_t(p_.http_major, p_.http_minor));
+		current_request_.http_version(http_version_t(p_.http_major, p_.http_minor));
 		current_request_.keep_alive(http_should_keep_alive(&p_) != 0);
 		return 0;
 	}
@@ -966,21 +976,21 @@ private:
 			}};
 
 public:
-	big_response_parser(big_response_callback responseCallback,
+	big_response_parser(big_response_callback callback,
 			protocol_upgrade_handler proto_upgrade_handler = nullptr)
 		: parser_base(HTTP_RESPONSE,
 					detail::parser_settings<big_response_parser>::get()),
-			callback_(responseCallback)
+			callback_(callback)
 	{
 		protocol_upgrade_handler_ = proto_upgrade_handler;
 	}
 
-	void set_max_headers_length(std::size_t maxLength) // 0 means unlimited
-			{ headers_length_limiter_.max_length(maxLength); }
+	void set_max_headers_length(std::size_t max_length) // 0 means unlimited
+			{ headers_length_limiter_.max_length(max_length); }
 
 private:
-	void throw_parse_error(const std::string& errorMessage) override
-			{ throw response_parse_error(errorMessage); }
+	void throw_parse_error(const std::string& error_message) override
+			{ throw response_parse_error(error_message); }
 
 private:
 	friend struct detail::callbacks<big_response_parser>;
@@ -1113,50 +1123,50 @@ using detail::headers;
 } /* namespace http */
 
 
-template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::http_version_t& ver)
+template<typename Stream>
+Stream& operator<<(Stream& stream, const http::http_version_t& ver)
 {
 	stream << ver.to_string();
 	return stream;
 }
 
-template<typename StreamT>
-StreamT& operator<<(StreamT& stream, http::request_head::method_t method)
+template<typename Stream>
+Stream& operator<<(Stream& stream, http::request_head::method_t method)
 {
 	stream << http_method_str(method);
 	return stream;
 }
 
-template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::request& req)
+template<typename Stream>
+Stream& operator<<(Stream& stream, const http::request& req)
 {
 	stream << "HTTP/" << req.http_version_ << " " << req.method_ << " request.\n"
 			<< "\tUrl: '" << req.url_ << "'\n"
 			<< "\tHeaders:\n";
-	for (const auto& fvPair : req.headers_) {
-		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
+	for (const auto& name_value_pair : req.headers_) {
+		stream << "\t\t'" << name_value_pair.first << "': '" << name_value_pair.second << "'\n";
 	}
 	stream << "\tBody is " << req.body().size() << " bytes long.\n\tKeepAlive: "
 			<< (req.keep_alive_ ? "yes" : "no") << ".";
 	return stream;
 }
 
-template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::response& resp)
+template<typename Stream>
+Stream& operator<<(Stream& stream, const http::response& resp)
 {
 	stream << "HTTP/" << resp.http_version_ << " '" << resp.status_code_ << "' "
 			<< resp.status_text_ << " response.\n"
 			<< "\tHeaders:\n";
-	for (const auto& fvPair : resp.headers_) {
-		stream << "\t\t'" << fvPair.first << "': '" << fvPair.second << "'\n";
+	for (const auto& name_value_pair : resp.headers_) {
+		stream << "\t\t'" << name_value_pair.first << "': '" << name_value_pair.second << "'\n";
 	}
 	stream << "\tBody is " << resp.body().size() << " bytes long.\n\tKeepAlive: "
 			<< (resp.keep_alive_ ? "yes" : "no") << ".";
 	return stream;
 }
 
-template<typename StreamT>
-StreamT& operator<<(StreamT& stream, const http::url_t& url)
+template<typename Stream>
+Stream& operator<<(Stream& stream, const http::url_t& url)
 {
 	stream << "URL\n"
 			<< "schema: '" << url.schema << "'\n"

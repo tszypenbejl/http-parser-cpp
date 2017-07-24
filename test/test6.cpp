@@ -1,14 +1,14 @@
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 int main()
 {
 	using namespace std;
 	using namespace http;
 
-	RequestParser parser;
+	request_parser parser;
 
 	const std::string input =
 			"GET /demo HTTP/1.1\r\n"
@@ -24,9 +24,10 @@ int main()
 
 	parser.feed(input.cbegin(), input.cend());
 
-	assert(1 == parser.parsedRequests.size());
-	assert("/demo" == parser.parsedRequests.front().url());
-	assert("WebSocket" == parser.parsedRequests.front().get_header("Upgrade"));
+	assert(1 == parser.get_request_count());
+	const request r = parser.pop_request();
+	assert("/demo" == r.url());
+	assert("WebSocket" == r.get_header("Upgrade"));
 
 	assert(
 			"some non-http data apparently sent with the assumption that\n"

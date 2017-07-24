@@ -1,7 +1,7 @@
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
-#include "../HttpParser.hpp"
+#include "../http_parser.hpp"
 
 int main()
 {
@@ -23,15 +23,12 @@ int main()
 			"LateHeader2: consists of just two chunks\r\n"
 			"\r\n";
 
-	RequestParser parser;
+	request_parser parser;
 	parser.feed(input.cbegin(), input.cend());
 	parser.feed_eof();
-	assert(1 == parser.parsedRequests.size());
-	//cout << parser.parsedRequests.front() << endl;
-	//cout << parser.parsedRequests.front().body << endl;
+	assert(1 == parser.get_request_count());
 
-	const request r = std::move(parser.parsedRequests.front());
-	parser.parsedRequests.pop_front();
+	const request r = parser.pop_request();
 
 	assert(HTTP_POST == r.method());
 	assert(1 == r.http_version().major() && 1 == r.http_version().minor());
