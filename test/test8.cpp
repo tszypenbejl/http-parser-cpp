@@ -6,28 +6,27 @@
 #include "testhelpers.hpp"
 #include "../http_parser.hpp"
 
-template<typename IterT>
-http::response getResponseFromBigParser(IterT inputBegin, IterT inputEnd)
+template<typename Iter>
+http::response get_response_from_big_parser(Iter input_begin, Iter input_end)
 {
     http::response response;
     std::string body;
     bool done = false;
 
-    auto callback = [&](const http::response_head &head, const char *bodyPart,
-            std::size_t bodyPartLength, bool finished)
+    auto callback = [&](const http::response_head &head, const char *body_part,
+            std::size_t body_part_length, bool finished)
     {
         assert(!done);
-        body.append(bodyPart, bodyPartLength);
-        //std::cout << body.size() << std::endl;
+        body.append(body_part, body_part_length);
         if (finished) {
             response.head(std::move(head));
             done = true;
         }
     };
 
-    http::big_response_parser bigParser(callback);
-    bigParser.feed(inputBegin, inputEnd);
-    bigParser.feed_eof();
+    http::big_response_parser big_parser(callback);
+    big_parser.feed(input_begin, input_end);
+    big_parser.feed_eof();
 
     assert(done);
     response.body(std::move(body));
@@ -59,25 +58,25 @@ int main()
     std::list<char> linput(sinput.begin(), sinput.end());
 
     response baseline_response;
-    response_parser ordinaryParser([&baseline_response](response_parser& p)
+    response_parser ordinary_parser([&baseline_response](response_parser& p)
             { baseline_response = p.pop_response(); });
-    ordinaryParser.feed(input, sizeof(input) - 1);
-    ordinaryParser.feed_eof();
+    ordinary_parser.feed(input, sizeof(input) - 1);
+    ordinary_parser.feed_eof();
 
-    assert(getResponseFromBigParser(sinput.begin(), sinput.end()) == baseline_response);
-    assert(getResponseFromBigParser(linput.begin(), linput.end()) == baseline_response);
+    assert(get_response_from_big_parser(sinput.begin(), sinput.end()) == baseline_response);
+    assert(get_response_from_big_parser(linput.begin(), linput.end()) == baseline_response);
 
-    bool exceptionThrown = false;
+    bool exception_thrown = false;
     try {
         auto callback =
-                [](const response_head &, const char *, std::size_t bodyPartLength, bool) {};
-        big_response_parser bigParser(callback);
-        bigParser.set_max_headers_length(10);
-        bigParser.feed(sinput.begin(), sinput.end());
+                [](const response_head &, const char *, std::size_t body_part_length, bool) {};
+        big_response_parser big_parser(callback);
+        big_parser.set_max_headers_length(10);
+        big_parser.feed(sinput.begin(), sinput.end());
     } catch (const response_headers_too_big &) {
-        exceptionThrown = true;
+        exception_thrown = true;
     }
-    assert(exceptionThrown);
+    assert(exception_thrown);
 
     cout << "If you can see this message, the test passed OK" << endl;
     return 0;

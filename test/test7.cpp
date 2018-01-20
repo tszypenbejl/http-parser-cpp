@@ -34,13 +34,13 @@ int main()
     sinput.append(input2);
     std::list<char> linput(sinput.begin(), sinput.end());
 
-    unsigned responsesParsed = 0;
-    bool exceptionThrown = false;
+    unsigned responses_parsed = 0;
+    bool exception_thrown = false;
 
-    auto responseConsumer = [&responsesParsed] (response_parser&) -> void { ++responsesParsed; };
+    auto response_consumer = [&responses_parsed] (response_parser&) -> void { ++responses_parsed; };
 
-    response_parser sparser(responseConsumer);
-    response_parser lparser(responseConsumer);
+    response_parser sparser(response_consumer);
+    response_parser lparser(response_consumer);
 
     sparser.set_max_response_length(sizeof(input1) - 1);
     lparser.set_max_response_length(sizeof(input1) - 1);
@@ -48,23 +48,23 @@ int main()
     try {
         sparser.feed(sinput.cbegin(), sinput.cend());
     } catch (const response_too_big&) {
-        exceptionThrown = true;
+        exception_thrown = true;
     }
 
-    assert(1 == responsesParsed);
-    assert(exceptionThrown);
+    assert(1 == responses_parsed);
+    assert(exception_thrown);
 
-    responsesParsed = 0;
-    exceptionThrown = false;
+    responses_parsed = 0;
+    exception_thrown = false;
 
     try {
         lparser.feed(linput.cbegin(), linput.cend());
     } catch (const response_too_big&) {
-        exceptionThrown = true;
+        exception_thrown = true;
     }
     
-    assert(1 == responsesParsed);
-    assert(exceptionThrown);
+    assert(1 == responses_parsed);
+    assert(exception_thrown);
 
     cout << "If you can see this message, the test passed OK" << endl;
     return 0;

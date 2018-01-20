@@ -6,28 +6,27 @@
 #include "testhelpers.hpp"
 #include "../http_parser.hpp"
 
-template<typename IterT>
-http::request getRequestFromBigParser(IterT inputBegin, IterT inputEnd)
+template<typename Iter>
+http::request get_request_from_big_parser(Iter input_begin, Iter input_end)
 {
     http::request request;
     std::string body;
     bool done = false;
 
-    auto callback = [&](const http::request_head &head, const char *bodyPart,
-            std::size_t bodyPartLength, bool finished)
+    auto callback = [&](const http::request_head &head, const char *body_part,
+            std::size_t body_part_length, bool finished)
     {
         assert(!done);
-        body.append(bodyPart, bodyPartLength);
-        //std::cout << body.size() << std::endl;
+        body.append(body_part, body_part_length);
         if (finished) {
             request.head(std::move(head));
             done = true;
         }
     };
 
-    http::big_request_parser bigParser(callback);
-    bigParser.feed(inputBegin, inputEnd);
-    bigParser.feed_eof();
+    http::big_request_parser big_parser(callback);
+    big_parser.feed(input_begin, input_end);
+    big_parser.feed_eof();
 
     assert(done);
     request.body(std::move(body));
@@ -68,26 +67,26 @@ int main()
     std::string sinput = input;
     std::list<char> linput(sinput.begin(), sinput.end());
 
-    request baselineRequest;
-    request_parser ordinaryParser([&baselineRequest](request_parser& rp)
-        { baselineRequest = rp.pop_request(); });
-    ordinaryParser.feed(input, sizeof(input) - 1);
-    ordinaryParser.feed_eof();
+    request baseline_request;
+    request_parser ordinary_parser([&baseline_request](request_parser& rp)
+        { baseline_request = rp.pop_request(); });
+    ordinary_parser.feed(input, sizeof(input) - 1);
+    ordinary_parser.feed_eof();
 
-    assert(getRequestFromBigParser(sinput.begin(), sinput.end()) == baselineRequest);
-    assert(getRequestFromBigParser(linput.begin(), linput.end()) == baselineRequest);
+    assert(get_request_from_big_parser(sinput.begin(), sinput.end()) == baseline_request);
+    assert(get_request_from_big_parser(linput.begin(), linput.end()) == baseline_request);
 
-    bool exceptionThrown = false;
+    bool exception_thrown = false;
     try {
         auto callback =
-                [](const request_head&, const char *, std::size_t bodyPartLength, bool) {};
-        big_request_parser bigParser(callback);
-        bigParser.set_max_headers_length(10);
-        bigParser.feed(sinput.begin(), sinput.end());
+                [](const request_head&, const char *, std::size_t body_part_length, bool) {};
+        big_request_parser big_parser(callback);
+        big_parser.set_max_headers_length(10);
+        big_parser.feed(sinput.begin(), sinput.end());
     } catch (const request_headers_too_big &) {
-        exceptionThrown = true;
+        exception_thrown = true;
     }
-    assert(exceptionThrown);
+    assert(exception_thrown);
 
     cout << "If you can see this message, the test passed OK" << endl;
     return 0;

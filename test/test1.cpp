@@ -49,14 +49,14 @@ int main()
     assert("example.com" == r.get_header("host", "value-if-not-found"));
     assert(!r.has_header("Content-Type"));
     assert("text/plain" == r.get_header("Content-Type", "text/plain"));
-    bool headerNotFoundErrorOccurred = false;
+    bool header_not_found_error_occurred = false;
     try {
         (void) r.get_header("Content-Type");
     } catch (const header_not_found_error&) {
         //cerr << e.what() << endl;
-        headerNotFoundErrorOccurred = true;
+        header_not_found_error_occurred = true;
     }
-    assert(headerNotFoundErrorOccurred);
+    assert(header_not_found_error_occurred);
 
     cout << "If you can see this message, the test passed OK" << endl;
     return 0;

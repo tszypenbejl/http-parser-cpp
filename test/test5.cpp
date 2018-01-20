@@ -51,7 +51,6 @@ int main()
     assert("text/plain" == r.get_header("content-type"));
     assert("15" == r.get_header("content-length"));
     assert("Hello, World!\r\n" == r.body());
-    //std::cout << r << std::endl;
 
     cout << "If you can see this message, the test passed OK" << endl;
     return 0;
