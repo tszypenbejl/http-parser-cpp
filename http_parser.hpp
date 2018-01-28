@@ -260,60 +260,6 @@ public:
 };
 
 
-class headers_assembler
-{
-    headers_owner& headers_;
-    std::string    current_header_field_;
-    std::string    current_header_value_;
-    bool           current_header_field_complete_ = false;
-
-public:
-    headers_assembler(headers_owner& h): headers_(h) {}
-    headers_assembler(const headers_assembler&)            = delete;
-    headers_assembler(headers_assembler&&)                 = delete;
-    headers_assembler& operator=(const headers_assembler&) = delete;
-    headers_assembler& operator=(headers_assembler&&)      = delete;
-
-    void reset()
-    {
-        current_header_field_.clear();
-        current_header_value_.clear();
-        current_header_field_complete_ = false;
-    }
-
-    void on_header_field(const char* data, std::size_t length)
-    {
-        if (current_header_field_complete_) {
-            on_single_header_complete();
-        }
-        current_header_field_.append(data, length);
-    }
-
-    void on_header_value(const char* data, std::size_t length)
-    {
-        current_header_value_.append(data, length);
-        current_header_field_complete_ = true;
-    }
-
-    void on_headers_complete()
-    {
-        on_single_header_complete();
-    }
-
-private:
-    void on_single_header_complete()
-    {
-        if (current_header_field_.empty()) {
-            return;
-        }
-        headers_.add_header(current_header_field_, current_header_value_);
-        current_header_field_.clear();
-        current_header_value_.clear();
-        current_header_field_complete_ = false;
-    }
-};
-
-
 class length_limiter
 {
 public:
@@ -342,6 +288,78 @@ public:
     }
 
     inline void reset() { current_length_ = 0; }
+};
+
+
+class headers_assembler
+{
+    headers_owner&  headers_;
+    length_limiter& limiter_;
+    std::string     current_header_field_;
+    std::string     current_header_value_;
+    bool            current_header_field_complete_ = false;
+
+public:
+    headers_assembler(headers_owner& h, length_limiter& l): headers_(h), limiter_(l) {}
+    headers_assembler(const headers_assembler&)            = delete;
+    headers_assembler(headers_assembler&&)                 = delete;
+    headers_assembler& operator=(const headers_assembler&) = delete;
+    headers_assembler& operator=(headers_assembler&&)      = delete;
+
+    void reset()
+    {
+        current_header_field_.clear();
+        current_header_value_.clear();
+        current_header_field_complete_ = false;
+    }
+
+    int on_header_field(const char* data, std::size_t length)
+    {
+        limiter_.check_length(length);
+        if (current_header_field_complete_) {
+            on_single_header_complete();
+        }
+        current_header_field_.append(data, length);
+        return 0;
+    }
+
+    int on_header_value(const char* data, std::size_t length)
+    {
+        limiter_.check_length(length);
+        current_header_value_.append(data, length);
+        current_header_field_complete_ = true;
+        return 0;
+    }
+
+    int on_headers_complete()
+    {
+        on_single_header_complete();
+        return 0;
+    }
+
+    int on_chunk_header()
+    {
+        reset();
+        return 0;
+    }
+
+    int on_chunk_complete()
+    {
+        on_headers_complete();
+        return 0;
+    }
+
+private:
+    void on_single_header_complete()
+    {
+        if (current_header_field_.empty()) {
+            return;
+        }
+        headers_.add_header(current_header_field_, current_header_value_);
+        current_header_field_.clear();
+        current_header_value_.clear();
+        current_header_field_complete_ = false;
+    }
 };
 
 
@@ -583,14 +601,13 @@ public:
 };
 
 
-class request_parser : public detail::parser_base
+class request_parser : public detail::parser_base, private detail::headers_assembler
 {
 public:
     using new_request_callback = std::function<void(request_parser&)>;
 
 private:
     request                   current_request_;
-    detail::headers_assembler headers_assembler_      { current_request_ };
     new_request_callback      callback_;
     detail::length_limiter    request_length_limiter_ { [](std::size_t, std::size_t limit)
             {
@@ -601,14 +618,17 @@ private:
 
 public:
     request_parser()
-        : parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()) {}
+        : parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()),
+          headers_assembler(current_request_, request_length_limiter_) {}
 
     request_parser(new_request_callback callback)
         : parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()),
-            callback_(callback) {}
+          headers_assembler(current_request_, request_length_limiter_),
+          callback_(callback) {}
 
     request_parser(protocol_upgrade_handler protocol_upgrade_handler)
-        : parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get())
+        : parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()),
+          headers_assembler(current_request_, request_length_limiter_)
     {
         protocol_upgrade_handler_ = protocol_upgrade_handler;
     }
@@ -616,7 +636,8 @@ public:
     request_parser(new_request_callback callback,
             protocol_upgrade_handler protocol_upgrade_handler)
         : parser_base(HTTP_REQUEST, detail::parser_settings<request_parser>::get()),
-            callback_(callback)
+          headers_assembler(current_request_, request_length_limiter_),
+          callback_(callback)
     {
         protocol_upgrade_handler_ = protocol_upgrade_handler;
     }
@@ -647,7 +668,7 @@ private:
     int on_message_begin()
     {
         current_request_ = request();
-        headers_assembler_.reset();
+        headers_assembler::reset();
         request_length_limiter_.reset();
         return 0;
     }
@@ -662,26 +683,6 @@ private:
     int on_status(const char* data, std::size_t length)
     {
         assert(false); // not reached
-        return 0;
-    }
-
-    int on_header_field(const char* data, std::size_t length)
-    {
-        request_length_limiter_.check_length(length);
-        headers_assembler_.on_header_field(data, length);
-        return 0;
-    }
-
-    int on_header_value(const char* data, std::size_t length)
-    {
-        request_length_limiter_.check_length(length);
-        headers_assembler_.on_header_value(data, length);
-        return 0;
-    }
-
-    int on_headers_complete()
-    {
-        headers_assembler_.on_headers_complete();
         return 0;
     }
 
@@ -703,28 +704,15 @@ private:
         }
         return 0;
     }
-
-    int on_chunk_header()
-    {
-        headers_assembler_.reset();
-        return 0;
-    }
-
-    int on_chunk_complete()
-    {
-        headers_assembler_.on_headers_complete();
-        return 0;
-    }
 };
 
-class response_parser : public detail::parser_base
+class response_parser : public detail::parser_base, private detail::headers_assembler
 {
 public:
     using new_response_callback = std::function<void(response_parser&)>;
 
 private:
     response                  current_response_;
-    detail::headers_assembler headers_assembler_        { current_response_ };
     new_response_callback     callback_;
     detail::length_limiter    response_length_limiter_  { [](std::size_t, std::size_t limit)
             {
@@ -735,14 +723,17 @@ private:
 
 public:
     response_parser()
-        : parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()) {}
+        : parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()),
+          headers_assembler(current_response_, response_length_limiter_) {}
 
     response_parser(new_response_callback callback)
         : parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()),
-            callback_(callback) {}
+          headers_assembler(current_response_, response_length_limiter_),
+          callback_(callback) {}
 
     response_parser(protocol_upgrade_handler proto_upgrade_handler)
-        : parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get())
+        : parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()),
+          headers_assembler(current_response_, response_length_limiter_)
     {
         protocol_upgrade_handler_ = proto_upgrade_handler;
     }
@@ -750,7 +741,8 @@ public:
     response_parser(new_response_callback callback,
             protocol_upgrade_handler proto_upgrade_handler)
         : parser_base(HTTP_RESPONSE, detail::parser_settings<response_parser>::get()),
-            callback_(callback)
+          headers_assembler(current_response_, response_length_limiter_),
+          callback_(callback)
     {
         protocol_upgrade_handler_ = proto_upgrade_handler;
     }
@@ -781,7 +773,7 @@ private:
     int on_message_begin()
     {
         current_response_ = response();
-        headers_assembler_.reset();
+        headers_assembler::reset();
         response_length_limiter_.reset();
         return 0;
     }
@@ -797,26 +789,6 @@ private:
     int on_status(const char* data, std::size_t length)
     {
         current_response_.append_status_text(data, length);
-        return 0;
-    }
-
-    int on_header_field(const char* data, std::size_t length)
-    {
-        response_length_limiter_.check_length(length);
-        headers_assembler_.on_header_field(data, length);
-        return 0;
-    }
-
-    int on_header_value(const char* data, std::size_t length)
-    {
-        response_length_limiter_.check_length(length);
-        headers_assembler_.on_header_value(data, length);
-        return 0;
-    }
-
-    int on_headers_complete()
-    {
-        headers_assembler_.on_headers_complete();
         return 0;
     }
 
@@ -839,22 +811,10 @@ private:
         }
         return 0;
     }
-
-    int on_chunk_header()
-    {
-        headers_assembler_.reset();
-        return 0;
-    }
-
-    int on_chunk_complete()
-    {
-        headers_assembler_.on_headers_complete();
-        return 0;
-    }
 };
 
 
-class big_request_parser : public detail::parser_base
+class big_request_parser : public detail::parser_base, private detail::headers_assembler
 {
 public:
     using big_request_callback = std::function<void(const request_head &request_head,
@@ -862,7 +822,6 @@ public:
 
 private:
     request_head              current_request_head_;
-    detail::headers_assembler headers_assembler_ { current_request_head_ };
     big_request_callback      callback_;
     detail::length_limiter    headers_length_limiter_ { [](std::size_t, std::size_t limit)
             {
@@ -874,7 +833,8 @@ public:
     big_request_parser(big_request_callback callback,
             protocol_upgrade_handler protocol_upgrade_handler = nullptr)
         : parser_base(HTTP_REQUEST, detail::parser_settings<big_request_parser>::get()),
-            callback_(callback)
+          headers_assembler(current_request_head_, headers_length_limiter_),
+          callback_(callback)
     {
         protocol_upgrade_handler_ = protocol_upgrade_handler;
     }
@@ -892,7 +852,7 @@ private:
     int on_message_begin()
     {
         current_request_head_ = request_head();
-        headers_assembler_.reset();
+        headers_assembler::reset();
         headers_length_limiter_.reset();
         return 0;
     }
@@ -910,23 +870,9 @@ private:
         return 0;
     }
 
-    int on_header_field(const char* data, std::size_t length)
-    {
-        headers_length_limiter_.check_length(length);
-        headers_assembler_.on_header_field(data, length);
-        return 0;
-    }
-
-    int on_header_value(const char* data, std::size_t length)
-    {
-        headers_length_limiter_.check_length(length);
-        headers_assembler_.on_header_value(data, length);
-        return 0;
-    }
-
     int on_headers_complete()
     {
-        headers_assembler_.on_headers_complete();
+        detail::headers_assembler::on_headers_complete();
         current_request_head_.method(static_cast<request_head::method_t>(p_.method));
         current_request_head_.http_version(http_version_t(p_.http_major, p_.http_minor));
         current_request_head_.keep_alive(http_should_keep_alive(&p_) != 0);
@@ -944,22 +890,10 @@ private:
         callback_(current_request_head_, nullptr, 0, true);
         return 0;
     }
-
-    int on_chunk_header()
-    {
-        headers_assembler_.reset();
-        return 0;
-    }
-
-    int on_chunk_complete()
-    {
-        headers_assembler_.on_headers_complete();
-        return 0;
-    }
 };
 
 
-class big_response_parser : public detail::parser_base
+class big_response_parser : public detail::parser_base, private detail::headers_assembler
 {
 public:
     using big_response_callback = std::function<void(const response_head &response_head,
@@ -967,7 +901,6 @@ public:
 
 private:
     response_head             current_response_head_;
-    detail::headers_assembler headers_assembler_      { current_response_head_ };
     big_response_callback     callback_;
     detail::length_limiter    headers_length_limiter_ { [](std::size_t, std::size_t limit)
             {
@@ -978,9 +911,9 @@ private:
 public:
     big_response_parser(big_response_callback callback,
             protocol_upgrade_handler proto_upgrade_handler = nullptr)
-        : parser_base(HTTP_RESPONSE,
-                    detail::parser_settings<big_response_parser>::get()),
-            callback_(callback)
+        : parser_base(HTTP_RESPONSE, detail::parser_settings<big_response_parser>::get()),
+          headers_assembler(current_response_head_, headers_length_limiter_),
+          callback_(callback)
     {
         protocol_upgrade_handler_ = proto_upgrade_handler;
     }
@@ -998,7 +931,7 @@ private:
     int on_message_begin()
     {
         current_response_head_ = response_head();
-        headers_assembler_.reset();
+        headers_assembler::reset();
         headers_length_limiter_.reset();
         return 0;
     }
@@ -1018,23 +951,9 @@ private:
         return 0;
     }
 
-    int on_header_field(const char* data, std::size_t length)
-    {
-        headers_length_limiter_.check_length(length);
-        headers_assembler_.on_header_field(data, length);
-        return 0;
-    }
-
-    int on_header_value(const char* data, std::size_t length)
-    {
-        headers_length_limiter_.check_length(length);
-        headers_assembler_.on_header_value(data, length);
-        return 0;
-    }
-
     int on_headers_complete()
     {
-        headers_assembler_.on_headers_complete();
+        headers_assembler::on_headers_complete();
         current_response_head_.status_code(p_.status_code);
         current_response_head_.http_version(http_version_t(p_.http_major, p_.http_minor));
         current_response_head_.keep_alive(http_should_keep_alive(&p_) != 0);
@@ -1050,18 +969,6 @@ private:
     int on_message_complete()
     {
         callback_(current_response_head_, nullptr, 0, true);
-        return 0;
-    }
-
-    int on_chunk_header()
-    {
-        headers_assembler_.reset();
-        return 0;
-    }
-
-    int on_chunk_complete()
-    {
-        headers_assembler_.on_headers_complete();
         return 0;
     }
 };
