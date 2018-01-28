@@ -861,8 +861,8 @@ public:
             const char *body_part, std::size_t body_part_length, bool finished)>;
 
 private:
-    request_head              current_request_;
-    detail::headers_assembler headers_assembler_ { current_request_ };
+    request_head              current_request_head_;
+    detail::headers_assembler headers_assembler_ { current_request_head_ };
     big_request_callback      callback_;
     detail::length_limiter    headers_length_limiter_ { [](std::size_t, std::size_t limit)
             {
@@ -891,7 +891,7 @@ private:
 
     int on_message_begin()
     {
-        current_request_ = request_head();
+        current_request_head_ = request_head();
         headers_assembler_.reset();
         headers_length_limiter_.reset();
         return 0;
@@ -900,7 +900,7 @@ private:
     int on_url(const char* data, std::size_t length)
     {
         headers_length_limiter_.check_length(length);
-        current_request_.append_url(data, length);
+        current_request_head_.append_url(data, length);
         return 0;
     }
 
@@ -927,21 +927,21 @@ private:
     int on_headers_complete()
     {
         headers_assembler_.on_headers_complete();
-        current_request_.method(static_cast<request_head::method_t>(p_.method));
-        current_request_.http_version(http_version_t(p_.http_major, p_.http_minor));
-        current_request_.keep_alive(http_should_keep_alive(&p_) != 0);
+        current_request_head_.method(static_cast<request_head::method_t>(p_.method));
+        current_request_head_.http_version(http_version_t(p_.http_major, p_.http_minor));
+        current_request_head_.keep_alive(http_should_keep_alive(&p_) != 0);
         return 0;
     }
 
     int on_body(const char* data, std::size_t length)
     {
-        callback_(current_request_, data, length, false);
+        callback_(current_request_head_, data, length, false);
         return 0;
     }
 
     int on_message_complete()
     {
-        callback_(current_request_, nullptr, 0, true);
+        callback_(current_request_head_, nullptr, 0, true);
         return 0;
     }
 
@@ -966,8 +966,8 @@ public:
             const char *body_part, std::size_t body_part_length, bool finished)>;
 
 private:
-    response_head             current_response_;
-    detail::headers_assembler headers_assembler_      { current_response_ };
+    response_head             current_response_head_;
+    detail::headers_assembler headers_assembler_      { current_response_head_ };
     big_response_callback     callback_;
     detail::length_limiter    headers_length_limiter_ { [](std::size_t, std::size_t limit)
             {
@@ -997,7 +997,7 @@ private:
 
     int on_message_begin()
     {
-        current_response_ = response_head();
+        current_response_head_ = response_head();
         headers_assembler_.reset();
         headers_length_limiter_.reset();
         return 0;
@@ -1014,7 +1014,7 @@ private:
     int on_status(const char* data, std::size_t length)
     {
         headers_length_limiter_.check_length(length);
-        current_response_.append_status_text(data, length);
+        current_response_head_.append_status_text(data, length);
         return 0;
     }
 
@@ -1035,21 +1035,21 @@ private:
     int on_headers_complete()
     {
         headers_assembler_.on_headers_complete();
-        current_response_.status_code(p_.status_code);
-        current_response_.http_version(http_version_t(p_.http_major, p_.http_minor));
-        current_response_.keep_alive(http_should_keep_alive(&p_) != 0);
+        current_response_head_.status_code(p_.status_code);
+        current_response_head_.http_version(http_version_t(p_.http_major, p_.http_minor));
+        current_response_head_.keep_alive(http_should_keep_alive(&p_) != 0);
         return 0;
     }
 
     int on_body(const char* data, std::size_t length)
     {
-        callback_(current_response_, data, length, false);
+        callback_(current_response_head_, data, length, false);
         return 0;
     }
 
     int on_message_complete()
     {
-        callback_(current_response_, nullptr, 0, true);
+        callback_(current_response_head_, nullptr, 0, true);
         return 0;
     }
 
