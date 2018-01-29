@@ -2,19 +2,27 @@
 
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <libgen.h> /* for basename */
+#include <cstring>
 #include <boost/asio.hpp>
 #include "../http_parser.hpp"
 
 using boost::asio::ip::tcp;
 using namespace http;
 
-std::string determineFileName(const std::string& urlPath,
+std::string determine_file_name(const std::string& url_path,
         const http::response_head& rh)
 {
     (void) rh;
-    // TODO this obviously needs refinement
-    return basename((char*) urlPath.c_str());
+    // It would make sense to get file name from Content-Disposition header.
+    // The solution here is much simpler so that the example can be short.
+    std::unique_ptr<char, decltype(&std::free)>  url_path_copy
+    		{ strdup(url_path.c_str()), std::free };
+    if (!url_path_copy) {
+    	throw std::bad_alloc();
+    }
+    return basename(url_path_copy.get());
 }
 
 int main(int argc, char* argv[])
@@ -26,13 +34,13 @@ int main(int argc, char* argv[])
         }
 
         url_t url;
-        bool urlParsedOk = false;
+        bool url_parsed_ok = false;
         try {
             url = parse_url(argv[1]);
-            urlParsedOk = true;
+            url_parsed_ok = true;
         } catch (const url_parse_error&) {
         }
-        if (!urlParsedOk || url.host.empty()) {
+        if (!url_parsed_ok || url.host.empty()) {
             std::cerr << "This does not appear to be a valid URL of a HTTP resource: "
             << argv[1] << std::endl;
             return 1;
@@ -57,13 +65,13 @@ int main(int argc, char* argv[])
         const std::string request = ss.str();
         std::cout << request << std::endl;
 
-        boost::asio::io_service ioService;
+        boost::asio::io_service io_service;
 
-        tcp::resolver resolver(ioService);
+        tcp::resolver resolver(io_service);
         tcp::resolver::query query(tcp::v4(), url.host, std::to_string(url.port));
         tcp::resolver::iterator it = resolver.resolve(query);
 
-        tcp::socket socket(ioService);
+        tcp::socket socket(io_service);
         std::cout << "Connecting to " << url.host << ':' << url.port << "... "
                 << std::flush;
         boost::asio::connect(socket, it);
@@ -71,25 +79,25 @@ int main(int argc, char* argv[])
         boost::asio::write(socket, boost::asio::buffer(request));
 
         std::cout << "Reading response." << std::endl;
-        std::string fileName;
-        std::ofstream outputFile;
-        outputFile.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+        std::string file_name;
+        std::ofstream output_file;
+        output_file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
         bool completed = false;
-        auto myCallback = [&] (const http::response_head& response,
-                const char *bodyPart, std::size_t bodyPartLength, bool finished) {
-            if (!outputFile.is_open()) {
-                fileName = determineFileName(url.path, response);
-                std::cout << "Saving to " << fileName << std::endl;
-                outputFile.open(fileName,
+        auto my_callback = [&] (const http::response_head& response,
+                const char *body_part, std::size_t body_part_length, bool finished) {
+            if (!output_file.is_open()) {
+                file_name = determine_file_name(url.path, response);
+                std::cout << "Saving to " << file_name << std::endl;
+                output_file.open(file_name,
                         std::ios::out | std::ios::trunc | std::ios::binary);
             }
-            outputFile.write(bodyPart, bodyPartLength);
+            output_file.write(body_part, body_part_length);
             completed = finished;
             if (completed) {
                 std::cout << "Done." << std::endl;
             }
         };
-        http::big_response_parser parser(myCallback);
+        http::big_response_parser parser(my_callback);
         parser.set_max_headers_length(1024 * 1024);
         while (!completed) {
             boost::system::error_code ec;
@@ -109,5 +117,6 @@ int main(int argc, char* argv[])
         std::cerr << "Interrupted by exception: " << e.what() << std::endl;
         return 1;
     }
+
     return 0;
 }
